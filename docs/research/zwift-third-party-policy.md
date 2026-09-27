@@ -301,7 +301,7 @@ The community and Zwift's enforcement patterns suggest a distinction:
 
 ### Risk Assessment for Keyboard Automation
 
-For a project that uses keyboard shortcuts to control Zwift (similar to your whisper-key-local application adapted for Zwift):
+For a project that uses keyboard shortcuts to control Zwift (similar to your Whisper Local application adapted for Zwift):
 
 **Low Risk Factors**:
 - Using only documented, built-in keyboard shortcuts
@@ -395,7 +395,7 @@ Zwift maintains a **restrictive official policy** that prohibits unauthorized th
 4. Don't promote exploits publicly
 5. Frame tools as convenience/accessibility features
 
-For a keyboard automation project like adapting whisper-key-local for Zwift, the risk appears **low but non-zero**, with the main precedent being the widespread acceptance of AutoHotkey scripts in the community.
+For a keyboard automation project like adapting Whisper Local for Zwift, the risk appears **low but non-zero**, with the main precedent being the widespread acceptance of AutoHotkey scripts in the community.
 
 ---
 

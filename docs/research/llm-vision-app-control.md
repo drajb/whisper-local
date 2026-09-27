@@ -2468,4 +2468,4 @@ No data sent to external servers
 
 **Document Version:** 1.0
 **Last Updated:** 2026-01-11
-**Author:** Research compilation for Whisper-Key-Local project
+**Author:** Research compilation for the Whisper Local project

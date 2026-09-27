@@ -62,7 +62,7 @@
 - As a *user* I want **guided GPU setup** so drivers and dependencies are auto-detected, downloaded, and installed through an in-app UI instead of manual steps
 
 ### Packaging & Updates
-- As a *user*, I want **config version tracking with auto-reset on breaking changes** so my settings don't cause errors after major updates ([#22](https://github.com/PinW/whisper-key-local/issues/22))
+- As a *user*, I want **config version tracking with auto-reset on breaking changes** so my settings don't cause errors after major updates
 
 ### macOS
 - As a *mac user*, I want **pyapp build for macOS** so Mac users get the same single-binary packaging experience as Windows

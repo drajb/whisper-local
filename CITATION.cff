@@ -6,9 +6,6 @@ authors:
   - family-names: Burani
     given-names: Rohit
     alias: drajb
-  - family-names: Wang
-    given-names: Pin
-    alias: PinW
 repository-code: "https://github.com/drajb/whisper-local"
 url: "https://github.com/drajb/whisper-local"
 abstract: >-

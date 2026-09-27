@@ -45,7 +45,7 @@ Whisper Local exists because **you shouldn't have to choose between accuracy and
 
 This is a **community tool**, not a product. There's no support SLA, no roadmap committee, no marketing. If it's useful to you, great. If something's broken, PRs are welcome.
 
-> **A note from the maintainer:** I built this for myself, then realised it might help others. So I'm releasing it **for anyone who wants it** — no strings attached. Use it. Fork it. Rebrand it. Ship your own version. The only thing I ask is that you keep the LICENSE attribution intact (to Pin Wang, the original upstream author, and to me as the fork maintainer). If you build something cool on top of it, I'd love to hear about it via a [Discussion](https://github.com/drajb/whisper-local/discussions) — but you don't owe anyone anything.
+> **A note from the maintainer:** I built this for myself, then realised it might help others. So I'm releasing it **for anyone who wants it** — no strings attached. Use it. Fork it. Rebrand it. Ship your own version. The only thing I ask is that you keep the LICENSE notice intact. If you build something cool on top of it, I'd love to hear about it via a [Discussion](https://github.com/drajb/whisper-local/discussions) — but you don't owe anyone anything.
 >
 > — **Rohit Burani**
 
@@ -430,9 +430,9 @@ No pressure. Starring the repo and sharing it with people who'd find it useful i
 
 ## 🙏 Credit
 
-Forked from [whisper-key-local](https://github.com/PinW/whisper-key-local) by **Pin Wang** — huge thanks to the original work that made this fork possible. The full list of credits, including every open-source library Whisper Local builds on, is in [`AUTHORS.md`](AUTHORS.md).
+Whisper Local builds on a lot of excellent open-source work. The full list is in [`AUTHORS.md`](AUTHORS.md).
 
-MIT licensed; original copyright preserved in [`LICENSE`](LICENSE).
+MIT licensed; see [`LICENSE`](LICENSE).
 
 ---
 

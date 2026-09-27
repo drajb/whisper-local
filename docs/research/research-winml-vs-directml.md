@@ -123,7 +123,7 @@ The package is **not deprecated** and is still being actively published. The ONN
 - You're on Linux with AMD GPUs
 - You need maximum AMD GPU performance
 
-### For this project (whisper-key-local)
+### For this project (Whisper Local)
 
 `onnxruntime-directml` remains the pragmatic choice because:
 1. It supports Windows 10 and all Windows 11 versions

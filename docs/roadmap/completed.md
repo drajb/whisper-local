@@ -1,9 +1,8 @@
 # Whisper Local - Completed Stories
 
-> Inherited from upstream `whisper-key-local`. Issue and PR links below point to the upstream repo for context.
 
 
-- As a *user* I want an optional **"transcription complete" sound** so I get an audible cue when the result is ready ([#35](https://github.com/PinW/whisper-key-local/pull/35))
+- As a *user* I want an optional **"transcription complete" sound** so I get an audible cue when the result is ready
 - As a *user*, I want **audio recording length** so I can get a feel for transcription times
 - As a *user*, I want **distinct cancel sound** so I can immediately tell when I cancelled vs stopped recording
 - As a *developer*, I want **beginner comments removed** so that the code is forced to be readable and can be read easily
@@ -21,16 +20,16 @@
 - As a *user*, I want **cancel recording action** so I can reset if I mess up too much without going through transcription and deleting what was pasted
 - As a *tester*, I want **PyPI** so I can easily install the app
 - As a *user* I want **auto-stop recording** so I won't record to the limit when I accidentally turn it on or forget it is on
-- As a *user*, I want to **hide the console window** so the app runs cleanly in the background ([#8](https://github.com/PinW/whisper-key-local/issues/8))
-- As a *user*, I want to **select audio source** so I can transcribe from different microphones or system audio ([#12](https://github.com/PinW/whisper-key-local/issues/12))
+- As a *user*, I want to **hide the console window** so the app runs cleanly in the background
+- As a *user*, I want to **select audio source** so I can transcribe from different microphones or system audio
 - As a *developer*, I want to **WASAPI loopback supported out of the box** so I can implement features like meeting transcription based on audio outputs
-- As a *user*, I want to **load custom local models** so I can use specialized or fine-tuned models ([#10](https://github.com/PinW/whisper-key-local/issues/10))
-- As a *user*, I want **shortcuts to access log and settings** in the systray menu so I can quickly troubleshoot issues ([#9](https://github.com/PinW/whisper-key-local/issues/9))
+- As a *user*, I want to **load custom local models** so I can use specialized or fine-tuned models
+- As a *user*, I want **shortcuts to access log and settings** in the systray menu so I can quickly troubleshoot issues
 - As a *mac user*, I want **Fn key as modifier** so I can use the ergonomic bottom-left corner for recording
 - As a *user*, I want to choose different **languages for transcription** so that I can get a free/passive accuracy boost
 - As a *developer*, I want **WASAPI support without scipy** so that the package is smaller and more efficient
 - As a *user*, I want **better icons** so that I can easily identify the app state in the system tray
-- As a *user* I want **support for more hotkeys** (F13-F24, Insert) so I can use StreamDeck or AutoHotkey triggers ([#14](https://github.com/PinW/whisper-key-local/issues/14))
+- As a *user* I want **support for more hotkeys** (F13-F24, Insert) so I can use StreamDeck or AutoHotkey triggers
 - As a *user* I want **config table in readme** so I can understand the types of functionality available before downloading
 - As a *contributor* I want a **LICENSE** so I know the terms for using and contributing
 - As a *user* I want **AMD GPU support** so I can use my AMD GPU for faster transcription via ROCm
@@ -38,7 +37,7 @@
 - As a *GPU user* I want **int8_float16 and int8_float32 compute types** so I can use less VRAM and get faster inference on RTX 20xx+ GPUs with INT8 tensor cores
 - As a *user* I want to **see CPU vs GPU mode on startup** so I can confirm the app is using the right processing device
 - As a *user* I want **direct text injection** so transcriptions reliably reach the target app without clipboard race conditions ([design](../design/auto-paste-reliability.md))
-  - As a *user* I want the **auto-paste empty text bug fixed** so transcriptions reach the target app instead of delivering empty text + stray Enter ([#21](https://github.com/PinW/whisper-key-local/issues/21))
+  - As a *user* I want the **auto-paste empty text bug fixed** so transcriptions reach the target app instead of delivering empty text + stray Enter
   - As a *user* I want a **configurable delivery method** so I can choose between direct typing and clipboard paste depending on my target app
 
 - As a *new user* I want **auto GPU detection** so CUDA/ROCm mode is enabled automatically when a compatible GPU is available
@@ -50,9 +49,9 @@
 - As a *user* I want **voice commands** so I can quickly activate tasks
 - As a *user* I want **transcription preset commands** so I can instantly deliver pre-written phrases without recording or transcribing
 - As a *user* I want **hotkey-activated commands** so I can bind specific voice commands to custom hotkeys and skip the speech step entirely
-- As a *user* I want **push-to-talk mode** so I can hold the hotkey to record and release to stop, as a configurable alternative to toggle mode ([#45](https://github.com/PinW/whisper-key-local/pull/45))
+- As a *user* I want **push-to-talk mode** so I can hold the hotkey to record and release to stop, as a configurable alternative to toggle mode
 
 ## Resolved Bugs
 
-- **Crash on model load** - bundled correct MSVCP140.dll instead of PyInstaller's incompatible version ([#22](https://github.com/PinW/whisper-key-local/issues/22))
+- **Crash on model load** - bundled correct MSVCP140.dll instead of PyInstaller's incompatible version
 - Auto-pasting does not work in Notepad (Alt unfocuses text field) `[WON'T FIX]`

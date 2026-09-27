@@ -2,7 +2,7 @@
 
 ## Problem
 
-Auto-paste fails intermittently. The transcription is correct (printed to terminal), but the target app receives empty text followed by a stray Enter. (Historical doc inherited from upstream.)
+Auto-paste fails intermittently. The transcription is correct (printed to terminal), but the target app receives empty text followed by a stray Enter.
 
 ## Observations
 
