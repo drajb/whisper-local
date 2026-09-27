@@ -56,7 +56,7 @@ class TapLatch:
                 self._cancel_timer()
                 state = self.IDLE
             if state == self.IDLE and self._clock() < self._ignore_press_until:
-                action = None  # the chord finishing after a stop key; see stopped_elsewhere()
+                action = None  # the chord finishing after a stop key; see intercept_stop_key()
             elif state == self.IDLE:
                 self.state = self.HELD
                 self._pressed_at = self._clock()
