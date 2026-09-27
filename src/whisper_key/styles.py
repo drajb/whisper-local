@@ -8,6 +8,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Unknown style names already reported, so a typo is logged once, not on
+# every dictation.
+_warned_unknown = set()
+
 # The toggles a style may set. Anything else in a style entry is ignored, so a
 # style can never switch on something like Ollama or change delivery.
 STYLE_KEYS = ('capitalize_first', 'ensure_punctuation', 'strip_trailing_period',
@@ -23,10 +27,11 @@ STYLE_PRESETS = {
     # Texting: all lowercase except acronyms and your own terms, no final period.
     'very_casual': {'capitalize_first': False, 'ensure_punctuation': False,
                     'strip_trailing_period': True, 'lowercase': True},
-    # Exactly what Whisper heard. For code editors and terminals.
+    # No automatic capitals, periods or lists, for code editors and terminals.
+    # Spoken "new line" / "comma" still work, and so do your corrections.
     'verbatim': {'capitalize_first': False, 'ensure_punctuation': False,
-                 'strip_trailing_period': False, 'inline_formatting': False,
-                 'lowercase': False, 'list_formatting': False},
+                 'strip_trailing_period': False, 'lowercase': False,
+                 'list_formatting': False},
 }
 
 
@@ -50,6 +55,8 @@ def resolve_style(name, postprocess_cfg: dict = None) -> dict:
     key = str(name).strip().lower().replace(' ', '_').replace('-', '_')
     styles = available_styles(postprocess_cfg)
     if key not in styles:
-        logger.warning(f"Unknown style '{name}' — known styles: {', '.join(sorted(styles))}")
+        if key not in _warned_unknown:
+            _warned_unknown.add(key)
+            logger.warning(f"Unknown style '{name}' — known styles: {', '.join(sorted(styles))}")
         return {}
     return dict(styles[key])

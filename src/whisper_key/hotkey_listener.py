@@ -122,13 +122,13 @@ class HotkeyListener:
                 'name': 'rephrase (push-to-talk)'
             })
 
-        # Fires on release, not press: pasting while the chord is still held
-        # would merge its modifiers into the synthetic Ctrl+V.
+        # Fires on press: the macOS backend only reports releases for
+        # modifier-only chords. The paste itself waits for the modifiers to be
+        # let go (StateManager._wait_for_modifiers_released).
         if self.paste_last_hotkey:
             hotkey_configs.append({
                 'combination': self.paste_last_hotkey,
-                'callback': lambda: None,
-                'release_callback': self._paste_last_hotkey_released,
+                'callback': self._paste_last_hotkey_pressed,
                 'name': 'paste last'
             })
 
@@ -205,6 +205,9 @@ class HotkeyListener:
 
     def _stop_key_pressed(self):
         self.logger.debug(f"Stop key pressed: {self.stop_key}, keys_armed={self.keys_armed}")
+        if self.tap_latch and self.tap_latch.intercept_stop_key():
+            self.logger.debug("Stop key ignored - second tap of a double-tap")
+            return
 
         if self.keys_armed:
             self.logger.info(f"Stop key activated: {self.stop_key}")
@@ -214,6 +217,8 @@ class HotkeyListener:
 
     def _auto_send_key_pressed(self):
         self.logger.debug(f"Auto-send key pressed: {self.auto_send_key}, keys_armed={self.keys_armed}")
+        if self.tap_latch and self.tap_latch.intercept_stop_key():
+            return
 
         if not self.state_manager.audio_recorder.get_recording_status():
             self.logger.debug("Auto-send key ignored - not currently recording")
@@ -248,7 +253,7 @@ class HotkeyListener:
 
     # Own thread: the paste waits for modifiers to be let go, and the hotkey
     # listener thread must never block on that.
-    def _paste_last_hotkey_released(self):
+    def _paste_last_hotkey_pressed(self):
         import threading
         self.logger.info(f"Paste-last hotkey: {self.paste_last_hotkey}")
         threading.Thread(target=self.state_manager.paste_last_transcription,

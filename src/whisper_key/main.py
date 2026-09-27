@@ -297,8 +297,16 @@ def setup_hotkey_listener(hotkey_config, state_manager, voice_commands_enabled=T
         recording_mode=hotkey_config.get('recording_mode', 'push_to_talk'),
         paste_last_hotkey=hotkey_config.get('paste_last_hotkey'),
         double_tap_to_lock=bool(hotkey_config.get('double_tap_to_lock', False)),
-        double_tap_window_ms=int(hotkey_config.get('double_tap_window_ms', 400) or 400),
+        double_tap_window_ms=_int_setting(hotkey_config.get('double_tap_window_ms'), 400),
     )
+
+# A numeric setting from hand-edited YAML, falling back to `default` rather
+# than crashing startup over a typo.
+def _int_setting(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 def shutdown_app(hotkey_listener: HotkeyListener, state_manager: StateManager, logger: logging.Logger):
     try:

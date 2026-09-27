@@ -63,7 +63,7 @@ class AudioRecorder:
         self.recording_start_time = None
         self.logger = logging.getLogger(__name__)
         self._noise_suppression_config = noise_suppression_config or {}
-        self._whisper_mode_config = whisper_mode_config or {}
+        self._whisper_mode_gain = self._parse_whisper_mode(whisper_mode_config)
 
         self.vad_manager = vad_manager
         self.on_vad_event = on_vad_event
@@ -311,18 +311,33 @@ class AudioRecorder:
             strength = float(self._noise_suppression_config.get('strength', 0.75))
             audio_array = apply_noise_reduction(audio_array, self.WHISPER_SAMPLE_RATE, strength)
 
-        # After noise reduction, so the boost lifts the speech, not the noise.
-        if self._whisper_mode_config.get('enabled'):
-            from .audio_gain import boost_quiet_audio
-            audio_array = boost_quiet_audio(
-                audio_array, float(self._whisper_mode_config.get('max_gain', 8.0)))
 
         audio_array = self._trim_long_pauses(audio_array)
         audio_array = self._trim_trailing_silence(audio_array)
 
+        # Whisper mode boosts last: the trims above judge silence against an
+        # absolute level, and a boosted noise floor would read as speech,
+        # switching off the anti-hallucination trimming.
+        if self._whisper_mode_gain:
+            from .audio_gain import boost_quiet_audio
+            audio_array = boost_quiet_audio(audio_array, self._whisper_mode_gain)
+
         duration = self.get_audio_duration(audio_array)
         self.logger.info(f"Recorded {duration:.2f}s (incl. preroll, mid-pauses + trailing silence trimmed)")
         return audio_array
+
+    # The whisper-mode max gain, or None when it's off. Validated once here: a
+    # hand-edited `whisper_mode: true` or `max_gain: 8x` must not break every
+    # recording, so bad values fall back to the default boost.
+    @staticmethod
+    def _parse_whisper_mode(config) -> Optional[float]:
+        if not isinstance(config, dict) or config.get('enabled') is not True:
+            return None
+        try:
+            gain = float(config.get('max_gain', 8.0))
+        except (TypeError, ValueError):
+            gain = 8.0
+        return gain if gain > 1.0 else None
 
     def _trim_long_pauses(self, audio: np.ndarray) -> np.ndarray:
         if audio.ndim > 1:

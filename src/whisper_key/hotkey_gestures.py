@@ -28,6 +28,7 @@ class TapLatch:
         self._timer_factory = timer_factory or self._thread_timer
         self._timer = None
         self._pressed_at = 0.0
+        self._ignore_press_until = 0.0
         self._lock = threading.Lock()
         self.state = self.IDLE
 
@@ -54,7 +55,9 @@ class TapLatch:
             if state in (self.LATCHED, self.PENDING) and self._is_recording and not self._is_recording():
                 self._cancel_timer()
                 state = self.IDLE
-            if state == self.IDLE:
+            if state == self.IDLE and self._clock() < self._ignore_press_until:
+                action = None  # the chord finishing after a stop key; see stopped_elsewhere()
+            elif state == self.IDLE:
                 self.state = self.HELD
                 self._pressed_at = self._clock()
                 action = self._start
@@ -96,8 +99,17 @@ class TapLatch:
             self._timer = None
         self._stop()
 
-    # Recording ended some other way (stop key, cancel, silence timeout).
-    def reset(self):
+    # Called by the listener when the stop key is pressed. The default stop key
+    # is part of the record chord (Ctrl in Ctrl+Win, Fn in Fn+Ctrl), so it fires
+    # the moment a tap on the chord begins. Returns True when that stop must be
+    # ignored: during the double-tap window it's the start of the second tap.
+    # While locked the stop is real, and the chord press that may complete an
+    # instant later is swallowed so it can't start a new recording.
+    def intercept_stop_key(self) -> bool:
         with self._lock:
-            self._cancel_timer()
-            self.state = self.IDLE
+            if self.state == self.PENDING:
+                return True
+            if self.state == self.LATCHED:
+                self.state = self.IDLE
+                self._ignore_press_until = self._clock() + self.window
+            return False

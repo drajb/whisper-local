@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 # The --window names main.py accepts; keep in sync with its argparse choices.
 WINDOW_NAMES = ('cheat-sheet', 'add-word', 'fallback', 'history')
 
+# The open child per window name, so a second tray click doesn't stack another
+# copy (the in-process windows have the same singleton guard). Fallback windows
+# are exempt: each one carries a different transcript.
+_open_children = {}
+_children_lock = threading.Lock()
+
 
 # ── Parent side ──────────────────────────────────────────────────────────────
 
@@ -28,6 +34,11 @@ def open_in_child_process(name: str, payload: dict = None) -> bool:
         return False
     if name not in WINDOW_NAMES:
         raise ValueError(f"Unknown window: {name}")
+    with _children_lock:
+        running = _open_children.get(name)
+        if running is not None and running.poll() is None:
+            logger.info(f"The {name} window is already open")
+            return True
     command = [sys.executable, '-m', 'whisper_key.main', '--window', name]
     try:
         child = subprocess.Popen(command, stdin=subprocess.PIPE)
@@ -37,6 +48,9 @@ def open_in_child_process(name: str, payload: dict = None) -> bool:
     except Exception as e:
         logger.error(f"Could not open the {name} window: {e}")
         return True
+    if name != 'fallback':
+        with _children_lock:
+            _open_children[name] = child
     # Reap the child when it closes so it doesn't linger as a zombie.
     threading.Thread(target=child.wait, daemon=True, name=f'{name}-window-reaper').start()
     return True

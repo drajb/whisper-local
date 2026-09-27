@@ -536,7 +536,7 @@ postprocess: # Transcription post-processing pipeline
     #   formal      - capitalized, always ends with punctuation (email, docs)
     #   casual      - capitalized, no trailing period (chat)
     #   very_casual - all lowercase except acronyms and your own terms, no period
-    #   verbatim    - exactly what Whisper heard (code editors, terminals)
+    #   verbatim    - no automatic capitals, periods or lists (code, terminals)
     # app_rules.yaml can pick a different style per app (`style: casual`).
     # Redefine a preset or add your own under `styles`, using any of:
     # capitalize_first, ensure_punctuation, strip_trailing_period,

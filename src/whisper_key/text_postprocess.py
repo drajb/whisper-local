@@ -45,6 +45,15 @@ INLINE_FORMAT_REPLACEMENTS = [
 ]
 
 
+# A toggle's on/off value. ruamel reads YAML 1.2, where `no` / `off` are
+# strings, and bool("no") is True, so a hand-written `list_formatting: no`
+# would switch the feature ON. Only real true values and yes/on/true count.
+def _on(value) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', 'yes', 'on', '1')
+    return value is True or (isinstance(value, int) and not isinstance(value, bool) and value != 0)
+
+
 def postprocess(text: str, config: dict) -> str:
     if not text or not config:
         return text
@@ -57,19 +66,21 @@ def postprocess(text: str, config: dict) -> str:
 
     # Spoken editing commands ("scratch that") operate on the raw dictation flow,
     # so they run first — before any symbol/format rewriting.
-    if config.get('voice_editing', False):
+    if _on(config.get('voice_editing')):
         text = _apply_voice_editing(text)
 
     # "at 2, actually 3" → "at 3". Same raw-flow reasoning as voice editing.
     backtrack_cfg = config.get('backtrack')
-    if isinstance(backtrack_cfg, dict) and backtrack_cfg.get('enabled', False):
+    if isinstance(backtrack_cfg, dict) and _on(backtrack_cfg.get('enabled')):
         cues = backtrack_cfg.get('cues') or dictation_cleanup.DEFAULT_BACKTRACK_CUES
+        if isinstance(cues, str):
+            cues = [cues]
         text = dictation_cleanup.apply_backtrack(text, cues)
 
-    if config.get('remove_repeated_words', False):
+    if _on(config.get('remove_repeated_words')):
         text = dictation_cleanup.remove_repeated_words(text)
 
-    if config.get('inline_formatting', False):
+    if _on(config.get('inline_formatting')):
         text = _apply_inline_formatting(text, config)
 
     # Deterministic, offline symbol formatting (times / emails / URLs). Each
@@ -94,11 +105,11 @@ def postprocess(text: str, config: dict) -> str:
     if isinstance(replacements, (list, tuple)) and replacements:
         text = _apply_replacements(text, replacements)
 
-    if config.get('strip_filler_words', False):
+    if _on(config.get('strip_filler_words')):
         text = _strip_fillers(text)
 
     became_list = False
-    if config.get('list_formatting', False):
+    if _on(config.get('list_formatting')):
         before = text
         text = dictation_cleanup.apply_list_formatting(
             text, style=str(config.get('list_style', 'numbered')))
@@ -106,7 +117,7 @@ def postprocess(text: str, config: dict) -> str:
 
     # Before snippets, so a style never lowercases a snippet's expansion; the
     # user's corrected terms keep their casing too.
-    if config.get('lowercase', False):
+    if _on(config.get('lowercase')):
         text = dictation_cleanup.apply_lowercase(text, _protected_terms(config))
 
     # A dictation that was only a snippet trigger is delivered exactly as the
@@ -115,20 +126,20 @@ def postprocess(text: str, config: dict) -> str:
     if whole_snippet:
         return text
 
-    if config.get('strip_trailing_period', False):
+    if _on(config.get('strip_trailing_period')):
         text = _strip_trailing_period(text)
 
-    if config.get('capitalize_first', False):
+    if _on(config.get('capitalize_first')):
         text = _capitalize_first(text)
 
     # A list's last item takes no closing period.
-    if config.get('ensure_punctuation', False) and not became_list:
+    if _on(config.get('ensure_punctuation')) and not became_list:
         text = _ensure_punctuation(text)
 
     # Same defensive shape check as smart_formatting above — a malformed
     # `ollama:` value must degrade to "no polish", not raise mid-dictation.
     ollama_cfg = config.get('ollama')
-    if isinstance(ollama_cfg, dict) and ollama_cfg.get('enabled', False):
+    if isinstance(ollama_cfg, dict) and _on(ollama_cfg.get('enabled')):
         polished = _ollama_polish(text, ollama_cfg)
         if polished:
             text = polished
