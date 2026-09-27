@@ -37,7 +37,7 @@ from .utils import OptionalComponent
 from .voice_activity_detection import VadEvent, VadManager
 from .voice_commands import VoiceCommandManager
 from .profiles import ProfileManager
-from .app_rules import AppRules, formatting_overrides as app_rules_formatting_overrides
+from .app_rules import AppRules, formatting_overrides as app_rules_formatting_overrides, effective_postprocess_config
 from .streaming_delivery import StreamingDelivery, decide_stream_delivery
 from .transforms import TransformsManager
 from .text_postprocess import postprocess
@@ -544,11 +544,11 @@ class StateManager:
             # override formatting (e.g. code editors: verbatim, no auto-caps/periods)
             # in addition to the delivery behaviour handled further down.
             rule = self.app_rules.match_for_foreground()
-            postprocess_cfg = self.config_manager.get_postprocess_config()
-            fmt_overrides = app_rules_formatting_overrides(rule)
+            raw_postprocess_cfg = self.config_manager.get_postprocess_config()
+            fmt_overrides = app_rules_formatting_overrides(rule, raw_postprocess_cfg)
             if fmt_overrides:
-                postprocess_cfg = {**postprocess_cfg, **fmt_overrides}
                 self.logger.info(f"App rule {rule.get('match')} → formatting overrides {fmt_overrides}")
+            postprocess_cfg = effective_postprocess_config(raw_postprocess_cfg, rule)
             transcribed_text = postprocess(transcribed_text, postprocess_cfg)
 
             # Post-processing can legitimately empty the text — e.g. "scratch that"
@@ -1010,6 +1010,45 @@ class StateManager:
     def get_recent_transcriptions(self) -> list:
         return list(self.recent_transcriptions)
 
+    # Types the last dictation again at the cursor (paste-last hotkey), e.g.
+    # after it went to the wrong window. Delivered exactly as before, minus
+    # auto-send, so a re-paste never fires off a message by itself.
+    def paste_last_transcription(self) -> bool:
+        text = self.last_transcription
+        if not text:
+            self.system_tray.notify("Nothing to paste yet — dictate something first.")
+            return False
+        if self.get_current_state() != "idle":
+            self.logger.info("Paste-last ignored: busy recording or transcribing")
+            return False
+        self._wait_for_modifiers_released()
+        try:
+            self.clipboard_manager.deliver_transcription(text, use_auto_enter=False)
+        except Exception as e:
+            self.logger.error(f"Paste-last failed: {e}")
+            self.system_tray.notify("Couldn't paste the last dictation.")
+            return False
+        return True
+
+    # A hotkey's release event can arrive while its other modifiers are still
+    # down, and those would merge into the paste. Wait briefly for the user to
+    # let go; after the timeout, deliver anyway rather than drop the request.
+    def _wait_for_modifiers_released(self, timeout: float = 1.5):
+        import time
+        try:
+            from .platform import keyboard as kb
+            modifiers_held = kb.modifiers_held
+        except (ImportError, AttributeError):
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if not modifiers_held():
+                    return
+            except Exception:
+                return
+            time.sleep(0.02)
+
     def recopy_recent_transcription(self, index: int):
         if 0 <= index < len(self.recent_transcriptions):
             text = self.recent_transcriptions[index]
@@ -1114,7 +1153,8 @@ class StateManager:
             streaming_manager = self.audio_recorder.streaming_manager
             on_streaming_result = self.audio_recorder.on_streaming_result
 
-            noise_cfg = (self.config_manager.config.get('audio') or {}).get('noise_suppression') or {}
+            audio_cfg = self.config_manager.config.get('audio') or {}
+            noise_cfg = audio_cfg.get('noise_suppression') or {}
             new_recorder = AudioRecorder(
                 on_vad_event=self.handle_vad_event,
                 channels=channels,
@@ -1126,6 +1166,7 @@ class StateManager:
                 on_streaming_result=on_streaming_result,
                 device=device_id if device_id != -1 else None,
                 noise_suppression_config=noise_cfg,
+                whisper_mode_config=audio_cfg.get('whisper_mode') or {},
             )
 
             self.audio_recorder = new_recorder

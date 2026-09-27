@@ -449,6 +449,17 @@ def _build_audio_tab(nb, cm, vars_, row_index):
     _row(tab, 'audio.noise_suppression.strength',
          'Noise strength (0.0 – 1.0)', lambda p: _entry(p, v), row_index)
 
+    wm = (cfg.get('audio') or {}).get('whisper_mode') or {}
+    v = tk.BooleanVar(value=bool(wm.get('enabled', False)))
+    vars_['audio.whisper_mode.enabled'] = v
+    _check(tab, 'audio.whisper_mode.enabled',
+           'Whisper mode  (boost quiet speech before transcribing)', v, row_index)
+
+    v = tk.StringVar(value=str(wm.get('max_gain', 8.0)))
+    vars_['audio.whisper_mode.max_gain'] = v
+    _row(tab, 'audio.whisper_mode.max_gain', 'Whisper mode max boost (×)',
+         lambda p: _entry(p, v), row_index)
+
     v = tk.BooleanVar(value=bool(_v(cfg, 'audio', 'pause_media_on_record', default=False)))
     vars_['audio.pause_media_on_record'] = v
     _check(tab, 'audio.pause_media_on_record',
@@ -488,12 +499,18 @@ def _build_hotkeys_tab(nb, cm, vars_, row_index):
         ('hotkey.command_hotkey', 'Command mode'),
         ('hotkey.rephrase_hotkey', 'Rephrase (PTT)'),
         ('hotkey.pause_hotkey', 'Pause all hotkeys'),
+        ('hotkey.paste_last_hotkey', 'Paste last dictation'),
     ]
     for path, label in pairs:
         parts = path.split('.')
         v = tk.StringVar(value=str(_v(cfg, *parts, default='')))
         vars_[path] = v
         _row(tab, path, label, lambda p, var=v: _entry(p, var), row_index)
+
+    v = tk.BooleanVar(value=bool(_v(cfg, 'hotkey', 'double_tap_to_lock', default=False)))
+    vars_['hotkey.double_tap_to_lock'] = v
+    _check(tab, 'hotkey.double_tap_to_lock',
+           'Hands-free: double-tap the record hotkey to lock recording on', v, row_index)
 
     _footnote(tab, 'Hotkey changes take effect on next app restart. '
                    'Format: lowercase modifiers separated by + (e.g. "ctrl+win+space").')
@@ -504,6 +521,15 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
     tab = _frame(nb, 'Post-process', row_index)
     cfg = cm.config
     pp = cfg.get('postprocess') or {}
+
+    from .styles import available_styles
+    style_names = [_NO_STYLE] + sorted(available_styles(pp))
+    v = tk.StringVar(value=str(pp.get('style') or _NO_STYLE))
+    vars_['postprocess.style'] = v
+    _row(tab, 'postprocess.style', 'Writing style',
+         lambda p: _combo(p, v, style_names), row_index,
+         note='formal · casual · very_casual (all lowercase) · verbatim. '
+              'Per-app styles live in app_rules.yaml.')
 
     checks = [
         ('postprocess.strip_filler_words', 'Strip filler words  (um, uh, like, you know)', 'strip_filler_words'),
@@ -517,6 +543,10 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
          'Keep English cue words when adding your own', 'inline_formatting_extend'),
         ('postprocess.voice_editing',
          'Voice editing  (say "scratch that" to erase the last sentence)', 'voice_editing'),
+        ('postprocess.remove_repeated_words',
+         'Remove stutters  ("I I think" → "I think")', 'remove_repeated_words'),
+        ('postprocess.list_formatting',
+         'Spoken lists  ("first … second …" → numbered list)', 'list_formatting'),
     ]
     for path, label, cfg_key in checks:
         v = tk.BooleanVar(value=bool(pp.get(cfg_key, False)))
@@ -535,7 +565,15 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
         vars_[path] = v
         _check(tab, path, label, v, row_index)
 
-    _footnote(tab, 'Custom phrase→symbol mappings (for other languages) live under '
+    bt = pp.get('backtrack') or {}
+    v = tk.BooleanVar(value=bool(bt.get('enabled', False)))
+    vars_['postprocess.backtrack.enabled'] = v
+    _check(tab, 'postprocess.backtrack.enabled',
+           'Backtrack  ("at 2, actually 3" → "at 3")', v, row_index)
+
+    _footnote(tab, 'Snippets (spoken shortcuts like "my signature") live under snippets '
+                   'in the settings file. '
+                   'Custom phrase→symbol mappings (for other languages) live under '
                    'inline_formatting_replacements in the settings file; misrecognition '
                    'fixes go under replacements (or use the history window\'s "Fix this '
                    'everywhere...").')
@@ -607,7 +645,12 @@ _NUMERIC_PATHS = {
     'audio.noise_suppression.strength',
     'vad.vad_silence_timeout_seconds',
     'postprocess.ollama.timeout',
+    'audio.whisper_mode.max_gain',
+    'hotkey.double_tap_window_ms',
 }
+
+# Shown in the style picker for "no style: use the individual toggles".
+_NO_STYLE = '(none)'
 
 
 # Turn the string-based Tkinter value back into the right Python type, keyed by
@@ -617,6 +660,8 @@ def _coerce(var, raw, path):
     import tkinter as tk
     if isinstance(var, tk.BooleanVar):
         return bool(raw)
+    if path == 'postprocess.style' and raw == _NO_STYLE:
+        return ''
     if path in _NUMERIC_PATHS:
         try:
             return int(raw)

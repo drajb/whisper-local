@@ -8,7 +8,35 @@
 
 ---
 
-## Round 11 (0.19.1) — user-reported issues (2026-09)
+## Round 12 (0.20.0) — Wispr Flow–style features (2026-09)
+
+Gap analysis against Wispr Flow's shipped features (Command Mode, Styles,
+Snippets, Backtrack, hands-free, paste-last, whisper mode, …). Built only what
+works fully offline and can be tested without a desktop: `dictation_cleanup.py`
+(backtrack, stutters, spoken lists, lowercase), `snippets.py`, `styles.py`,
+`hotkey_gestures.py` (double-tap lock), and `audio_gain.py` (whisper mode),
+plus a paste-last hotkey.
+
+Design constraints carried over from earlier rounds:
+- **Every text pass is O(n).** Two earlier regex passes froze the pipeline for
+  about 7 s on long dictations, so the new passes use find-then-expand scans
+  and have a large-input timing test.
+- **Nothing rewrites prose on a guess.** Backtrack needs a typed value after
+  the cue, lists need markers counting up from one plus punctuation, and
+  lowercase leaves acronyms, mixed case and the user's corrections alone.
+- **Style resolution happens once** (`app_rules.effective_postprocess_config`),
+  so the global style can't override an app rule's.
+- **Paste-last fires on key release** and waits for physical modifiers
+  (`keyboard.modifiers_held()`, new and mirrored), because a synthetic Ctrl+V
+  while Alt+Shift is held arrives as Ctrl+Alt+Shift+V.
+
+Real hotkey feel (double-tap timing, paste-last) still needs a hands-on test on
+Windows and macOS; the state machine and wiring are unit-tested with fakes.
+Settings-window round trip verified with real Tk under Xvfb.
+
+---
+
+## Round 11 (0.20.0) — user-reported issues (2026-09)
 
 Both open issues. Each came with a diagnosis and a patch on a fork. The root
 causes were confirmed against our own code and the fixes written here. Neither

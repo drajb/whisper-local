@@ -2684,3 +2684,314 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         line = line[:line.index('\n')]
         for name in WINDOW_NAMES:
             self.assertIn(repr(name), line)
+
+
+class WisprStyleFeatureTests(unittest.TestCase):
+    """Wispr Flow–style editing added in 0.20.0: backtrack, stutters, spoken
+    lists, styles, snippets, paste-last, double-tap lock, whisper mode."""
+
+    # --- Backtrack ---
+    def test_backtrack_replaces_the_value_it_corrects(self):
+        from whisper_key.dictation_cleanup import apply_backtrack
+        cases = {
+            "Let's meet at 2, actually 3 tomorrow.": "Let's meet at 3 tomorrow.",
+            'Tuesday, no wait, Wednesday works.': 'Wednesday works.',
+            'Send 5 dollars, I mean 6.': 'Send 6 dollars.',
+            'I have 2 kids, sorry, 3 kids.': 'I have 3 kids.',
+            'At 2pm, actually 3pm works.': 'At 3pm works.',
+            'We ship in March, no wait, April. It costs 5, actually 7.': 'We ship in April. It costs 7.',
+        }
+        for spoken, typed in cases.items():
+            self.assertEqual(apply_backtrack(spoken), typed, spoken)
+
+    def test_backtrack_leaves_ordinary_prose_alone(self):
+        from whisper_key.dictation_cleanup import apply_backtrack
+        for text in ('I actually like it.', 'Sorry, 3 people are here.',
+                     'It was 2. Actually 3 would be better.',   # never reaches across a sentence
+                     'Meet Tuesday at 2, actually Friday.'):    # class mismatch picks the weekday
+            expected = 'Meet Friday at 2.' if 'Friday' in text else text
+            self.assertEqual(apply_backtrack(text), expected, text)
+
+    def test_backtrack_is_linear_on_huge_dictations(self):
+        import time
+        from whisper_key.dictation_cleanup import apply_backtrack
+        text = 'I actually think ' * 20000 + 'at 2 actually 3'
+        start = time.monotonic()
+        self.assertTrue(apply_backtrack(text).endswith('at 3'))
+        self.assertLess(time.monotonic() - start, 2.0, 'must stay O(n)')
+
+    def test_backtrack_runs_only_when_enabled(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('at 2 actually 3', {'voice_editing': False}), 'at 2 actually 3')
+        self.assertEqual(postprocess('at 2 actually 3', {'backtrack': {'enabled': True}}), 'at 3')
+        self.assertEqual(postprocess('at 2 swap 3', {'backtrack': {'enabled': True, 'cues': ['swap']}}), 'at 3')
+
+    # --- Stutters ---
+    def test_repeated_words_collapse_but_real_doubles_stay(self):
+        from whisper_key.dictation_cleanup import remove_repeated_words
+        self.assertEqual(remove_repeated_words('I I think the the cat'), 'I think the cat')
+        self.assertEqual(remove_repeated_words('We, we should go'), 'We should go')
+        for keep in ('I had had enough', 'very very good', 'Bye bye', '11 11'):
+            self.assertEqual(remove_repeated_words(keep), keep)
+
+    # --- Spoken lists ---
+    def test_spoken_list_becomes_a_list(self):
+        from whisper_key.dictation_cleanup import apply_list_formatting
+        self.assertEqual(apply_list_formatting('My list: first, milk. Second, eggs. Third, bread.'),
+                         'My list:\n1. Milk\n2. Eggs\n3. Bread')
+        self.assertEqual(apply_list_formatting('One, buy milk. Two, call mom, and three, pay rent.'),
+                         '1. Buy milk\n2. Call mom\n3. Pay rent')
+        self.assertEqual(apply_list_formatting('first, milk. second, eggs', style='bullets'),
+                         '- Milk\n- Eggs')
+
+    def test_prose_that_counts_is_not_a_list(self):
+        from whisper_key.dictation_cleanup import apply_list_formatting
+        for text in ('One of the two options is fine.', 'First, we go.',
+                     'First of all, hello. Second, world.'):
+            self.assertEqual(apply_list_formatting(text), text)
+
+    def test_list_takes_no_closing_period(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('first, milk. second, eggs.',
+                                     {'list_formatting': True, 'ensure_punctuation': True}),
+                         '1. Milk\n2. Eggs')
+
+    # --- Lowercase / styles ---
+    def test_lowercase_keeps_acronyms_mixed_case_and_taught_terms(self):
+        from whisper_key.dictation_cleanup import apply_lowercase
+        self.assertEqual(apply_lowercase('Hello There, NASA and iPhone and Rohit.', protected=['Rohit']),
+                         'hello there, NASA and iPhone and Rohit.')
+
+    def test_style_resolution(self):
+        from whisper_key.styles import resolve_style
+        self.assertTrue(resolve_style('very casual')['lowercase'])
+        self.assertEqual(resolve_style('nope'), {}, 'unknown styles are ignored')
+        self.assertEqual(resolve_style(''), {})
+        custom = resolve_style('shouty', {'styles': {'shouty': {'capitalize_first': True, 'ollama': True}}})
+        self.assertEqual(custom, {'capitalize_first': True}, 'a style can only set formatting toggles')
+
+    def test_style_precedence(self):
+        from whisper_key.app_rules import effective_postprocess_config
+        global_cfg = {'style': 'formal', 'capitalize_first': False}
+        cfg = effective_postprocess_config(global_cfg)
+        self.assertTrue(cfg['capitalize_first'], 'the global style wins over global toggles')
+        self.assertNotIn('style', cfg, 'resolved once, so postprocess() cannot re-apply it')
+        cfg = effective_postprocess_config(global_cfg, {'style': 'very_casual'})
+        self.assertTrue(cfg['lowercase'])
+        self.assertFalse(cfg['ensure_punctuation'], "the app's style beats the global one")
+        cfg = effective_postprocess_config(global_cfg, {'style': 'very_casual', 'lowercase': False})
+        self.assertFalse(cfg['lowercase'], "a rule's own toggle beats its style")
+
+    def test_postprocess_applies_a_style_key(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('Hello There', {'style': 'formal'}), 'Hello There.')
+        self.assertEqual(postprocess('Hello There.', {'style': 'very_casual'}), 'hello there')
+
+    def test_shipped_app_rules_use_known_styles(self):
+        from ruamel.yaml import YAML
+        from whisper_key.styles import STYLE_PRESETS
+        rules = YAML().load((ROOT / 'src' / 'whisper_key' / 'app_rules.defaults.yaml').read_text(encoding='utf-8'))['rules']
+        styles = [r['style'] for r in rules if 'style' in r]
+        self.assertTrue(styles)
+        for style in styles:
+            self.assertIn(style, STYLE_PRESETS)
+
+    # --- Snippets ---
+    _SNIPPETS = [{'trigger': 'my signature', 'expansion': 'Best,\nRohit'},
+                 {'trigger': 'my work signature', 'expansion': 'Rohit B.\nEngineer'},
+                 {'trigger': 'my address', 'expansion': '1 Main St', 'mode': 'alone'},
+                 {'trigger': 'weird', 'expansion': r'\1 $0 (.*)'},
+                 {'nonsense': True}, 'not even a dict']
+
+    def test_snippet_expands_inline(self):
+        from whisper_key.snippets import expand_snippets
+        self.assertEqual(expand_snippets('Thanks. My signature.', self._SNIPPETS), ('Thanks. Best,\nRohit', False))
+        self.assertEqual(expand_snippets('Thanks. my work signature', self._SNIPPETS)[0],
+                         'Thanks. Rohit B.\nEngineer', 'the longer trigger wins')
+
+    def test_whole_utterance_snippet_is_delivered_verbatim(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'capitalize_first': True, 'ensure_punctuation': True, 'snippets': self._SNIPPETS}
+        self.assertEqual(postprocess('My signature.', cfg), 'Best,\nRohit')
+        self.assertEqual(postprocess('My address', cfg), '1 Main St')
+        self.assertEqual(postprocess('send my address now', cfg), 'Send my address now.',
+                         '"alone" snippets never fire mid-sentence')
+
+    def test_snippet_expansion_is_literal_and_variables_fill_in(self):
+        import datetime
+        from whisper_key.snippets import expand_snippets
+        self.assertEqual(expand_snippets('weird', self._SNIPPETS)[0], r'\1 $0 (.*)')
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        text, _ = expand_snippets('stamp', [{'trigger': 'stamp', 'expansion': 'On ${date}'}])
+        self.assertEqual(text, 'On ' + today)
+
+    def test_lowercase_style_never_touches_a_snippet(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'style': 'very_casual', 'snippets': self._SNIPPETS}
+        self.assertEqual(postprocess('Thanks. My signature.', cfg), 'thanks. Best,\nRohit')
+
+    # --- Double-tap lock ---
+    def _latch(self, recording=True):
+        from whisper_key.hotkey_gestures import TapLatch
+        now = [0.0]
+        timers = []
+
+        class FakeTimer:
+            def __init__(self, seconds, callback):
+                self.callback, self.cancelled = callback, False
+                timers.append(self)
+
+            def cancel(self):
+                self.cancelled = True
+        events = []
+        latch = TapLatch(start=lambda: events.append('start'), stop=lambda: events.append('stop'),
+                         window_ms=400, is_recording=lambda: recording,
+                         clock=lambda: now[0], timer_factory=FakeTimer)
+        return latch, events, now, timers
+
+    def test_hold_is_plain_push_to_talk(self):
+        latch, events, now, _ = self._latch()
+        latch.press()
+        now[0] = 2.0
+        latch.release()
+        self.assertEqual(events, ['start', 'stop'])
+        self.assertEqual(latch.state, latch.IDLE)
+
+    def test_single_quick_tap_stops_after_the_window(self):
+        latch, events, now, timers = self._latch()
+        latch.press()
+        now[0] = 0.1
+        latch.release()
+        self.assertEqual(events, ['start'], 'must not stop inside the double-tap window')
+        timers[-1].callback()
+        self.assertEqual(events, ['start', 'stop'])
+
+    def test_double_tap_locks_and_a_third_tap_stops(self):
+        latch, events, now, timers = self._latch()
+        latch.press(); now[0] = 0.1; latch.release()
+        now[0] = 0.2; latch.press()
+        self.assertTrue(timers[-1].cancelled)
+        self.assertEqual(latch.state, latch.LATCHED)
+        now[0] = 0.3; latch.release()
+        self.assertEqual(events, ['start'], 'releasing while locked does nothing')
+        now[0] = 9.0; latch.press()
+        self.assertEqual(events, ['start', 'stop'])
+
+    def test_lock_resyncs_when_recording_ended_elsewhere(self):
+        latch, events, now, _ = self._latch(recording=False)
+        latch.state = latch.LATCHED          # e.g. the silence timeout stopped it
+        latch.press()
+        self.assertEqual(events, ['start'], 'the next tap starts a new recording')
+
+    # --- Paste-last and hotkey wiring (real classes, heavy deps faked) ---
+    def _import_app_modules(self):
+        import types
+        import unittest.mock as mock
+        try:
+            import numpy  # noqa: F401  (must predate the sys.modules snapshot)
+        except ImportError:
+            self.skipTest('numpy not installed')
+
+        class Fake(types.ModuleType):
+            __path__ = []
+
+            def __getattr__(self, name):
+                if name.startswith('__'):
+                    raise AttributeError(name)
+                value = mock.MagicMock(name=f'{self.__name__}.{name}')
+                setattr(self, name, value)
+                return value
+        fakes = {name: Fake(name) for name in (
+            'PIL', 'PIL.Image', 'PIL.ImageDraw', 'pystray', 'sounddevice', 'soxr',
+            'faster_whisper', 'playsound3',
+            *('whisper_key.platform.' + m for m in ('hotkeys', 'keyboard', 'foreground', 'app',
+                                                  'console', 'permissions', 'icons', 'paths',
+                                                  'instance_lock', 'gpu')))}
+        patcher = mock.patch.dict(sys.modules, fakes)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in [n for n in sys.modules if n.startswith('whisper_key.')
+                     and n not in fakes and n not in ('whisper_key.utils',)]:
+            sys.modules.pop(name)
+        from whisper_key.hotkey_listener import HotkeyListener
+        from whisper_key.state_manager import StateManager
+        return HotkeyListener, StateManager
+
+    def _state_manager(self, last=None, state='idle'):
+        import unittest.mock as mock
+        _, StateManager = self._import_app_modules()
+        sm = StateManager.__new__(StateManager)
+        sm.logger = __import__('logging').getLogger('test')
+        sm.last_transcription = last
+        sm.clipboard_manager = mock.Mock()
+        sm.system_tray = mock.Mock()
+        sm.get_current_state = lambda: state
+        sm._wait_for_modifiers_released = lambda: None
+        return sm
+
+    def test_paste_last_retypes_without_auto_send(self):
+        sm = self._state_manager(last='hello world')
+        self.assertTrue(sm.paste_last_transcription())
+        sm.clipboard_manager.deliver_transcription.assert_called_once_with('hello world', use_auto_enter=False)
+
+    def test_paste_last_with_nothing_to_paste_says_so(self):
+        sm = self._state_manager(last=None)
+        self.assertFalse(sm.paste_last_transcription())
+        sm.clipboard_manager.deliver_transcription.assert_not_called()
+        sm.system_tray.notify.assert_called_once()
+
+    def test_paste_last_waits_while_recording(self):
+        sm = self._state_manager(last='x', state='recording')
+        self.assertFalse(sm.paste_last_transcription())
+        sm.clipboard_manager.deliver_transcription.assert_not_called()
+
+    def test_listener_registers_the_new_hotkeys(self):
+        import unittest.mock as mock
+        HotkeyListener, _ = self._import_app_modules()
+        with mock.patch.object(HotkeyListener, 'start_listening'):
+            listener = HotkeyListener(mock.Mock(), 'ctrl+win', 'ctrl', paste_last_hotkey='alt+shift+z',
+                                      double_tap_to_lock=True, double_tap_window_ms=300)
+        combos = [binding[0] for binding in listener.hotkey_bindings]
+        self.assertIn('alt+shift+z', combos)
+        self.assertIsNotNone(listener.tap_latch)
+        self.assertAlmostEqual(listener.tap_latch.window, 0.3)
+        paste = next(b for b in listener.hotkey_bindings if b[0] == 'alt+shift+z')
+        self.assertIsNotNone(paste[2], 'paste-last must fire on release, after the chord is let go')
+        with mock.patch.object(HotkeyListener, 'start_listening'):
+            plain = HotkeyListener(mock.Mock(), 'ctrl+win', 'ctrl', recording_mode='toggle',
+                                   double_tap_to_lock=True)
+        self.assertIsNone(plain.tap_latch, 'toggle mode is already hands-free')
+
+    # --- Whisper mode ---
+    def test_whisper_mode_boosts_only_quiet_speech(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('numpy not installed')
+        from whisper_key.audio_gain import boost_quiet_audio, TARGET_PEAK
+        t = np.linspace(0, 1, 16000, dtype=np.float32)
+        quiet = (0.1 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)  # needs 6x, under the 8x cap
+        boosted = boost_quiet_audio(quiet, max_gain=8.0)
+        self.assertAlmostEqual(float(np.max(np.abs(boosted))), TARGET_PEAK, delta=0.02)
+        self.assertEqual(boosted.dtype, np.float32)
+        capped = boost_quiet_audio((0.01 * np.sin(2 * np.pi * 220 * t)).astype(np.float32), max_gain=4.0)
+        self.assertAlmostEqual(float(np.max(np.abs(capped))), 0.04, delta=0.005)
+        loud = (0.9 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        self.assertIs(boost_quiet_audio(loud), loud, 'never turns the volume down')
+        silence = np.full(16000, 1e-5, dtype=np.float32)
+        self.assertIs(boost_quiet_audio(silence), silence, 'never amplifies a muted mic')
+
+    # --- Config & settings ---
+    def test_new_settings_ship_with_safe_defaults(self):
+        from ruamel.yaml import YAML
+        cfg = YAML().load((ROOT / 'src' / 'whisper_key' / 'config.defaults.yaml').read_text(encoding='utf-8'))
+        pp = cfg['postprocess']
+        self.assertFalse(pp['backtrack']['enabled'])
+        self.assertFalse(pp['remove_repeated_words'])
+        self.assertFalse(pp['list_formatting'])
+        self.assertFalse(pp['lowercase'])
+        self.assertEqual(pp['style'], '')
+        self.assertEqual(list(pp['snippets']), [])
+        self.assertFalse(cfg['hotkey']['double_tap_to_lock'])
+        self.assertFalse(cfg['audio']['whisper_mode']['enabled'])
+        self.assertIn('macos:', cfg['hotkey']['paste_last_hotkey'])

@@ -110,3 +110,19 @@ def send_hotkey(*keys: str):
 
 def type_text(text: str):
     pass  # SendInput method not used in macOS
+
+
+# True while Shift, Control, Option or Command is physically down. Checked
+# before synthesizing a paste from a hotkey, because a held modifier would
+# merge into it. Windows mirror: same name in platform/windows/keyboard.py.
+def modifiers_held() -> bool:
+    if not _quartz_available:
+        return False
+    try:
+        from Quartz import CGEventSourceFlagsState, kCGEventSourceStateHIDSystemState
+        flags = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState)
+    except Exception:
+        return False
+    mask = (kCGEventFlagMaskCommand | kCGEventFlagMaskControl
+            | kCGEventFlagMaskShift | kCGEventFlagMaskAlternate)
+    return bool(flags & mask)

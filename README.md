@@ -74,9 +74,16 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - 🎙️ **Global push-to-talk hotkey** — start recording from any app with `Ctrl+Win` (Windows) or `Fn+Ctrl` (macOS)
 - ⚡ **Pre-roll buffer + warmup** — captures the 500 ms before you press the key *and* pre-loads Whisper at boot, so the first word is never clipped and the first recording feels instant
 - 🏷️ **Terminal tab title status** — the tab shows what the app is doing (idle / recording / processing), handy when the tray icon is hidden in the overflow area
-- 🔵 **Floating level overlay** — a small pill at the screen edge shows you're being heard, with the transcript appearing next to the level bar (Wispr Flow–style). Optional [real-time streaming preview](docs/streaming.md) shows words *as you speak*.
+- 🔵 **Floating level overlay** — a small pill at the screen edge shows you're being heard, with the transcript appearing next to the level bar (Wispr Flow–style). Optional [real-time streaming preview](docs/streaming.md) shows words *as you speak*. *(Windows; the macOS menu-bar icon shows status instead.)*
 - 📝 **Inline voice formatting** — say "comma", "period", "question mark", "new paragraph", "open quote", etc. mid-sentence. **Fully customizable** for any language via `postprocess.inline_formatting_replacements` (e.g. map Polish phrases to punctuation, or "arrow" → →)
 - ✂️ **Voice editing** — say "scratch that" to erase what you just said, back to the start of the sentence (`postprocess.voice_editing`, opt-in)
+- ↩️ **Backtrack** — correct yourself mid-sentence: "meet at 2, actually 3" types "meet at 3" (`postprocess.backtrack`, opt-in). See [Smart editing](#️-smart-editing)
+- 🧾 **Spoken lists** — "first, milk. second, eggs" becomes a numbered or bulleted list (`postprocess.list_formatting`, opt-in)
+- ✨ **Snippets** — say "my signature" (or any trigger you define) mid-dictation and the full text is typed, with `${date}` / `${time}` / `${clipboard}` filled in
+- 🎨 **Writing styles** — formal, casual, very casual or verbatim, globally or per app (email formal, chat casual, code verbatim out of the box)
+- 📌 **Paste last dictation** — `Alt+Shift+Z` types your last dictation again when it landed in the wrong window
+- 🙌 **Hands-free lock** — double-tap the record hotkey to keep recording without holding it; tap again to stop (`hotkey.double_tap_to_lock`, opt-in)
+- 🤫 **Whisper mode** — boosts quiet speech so you can dictate in an open office (`audio.whisper_mode`, opt-in)
 - 🔢 **Smart formatting** — deterministic, offline: "3 p.m." → "3 PM", "john at example dot com" → "john@example.com" (`postprocess.smart_formatting`, each toggle opt-in)
 - 🤖 **AI rephrase** — dedicated `Ctrl+Shift+Win` hotkey: select text, hold, speak your instruction, release — local Ollama rewrites it in place
 - 🌐 **Translation mode** — speak any language, get English; tray → Profile → Translate
@@ -174,6 +181,37 @@ whisper-local --doctor
 ```
 
 Runs through Python version, dependencies, config validation, audio devices, model cache, hotkey backend, and recent log errors. Exit 0 = clean.
+
+---
+
+## ✍️ Smart editing
+
+Say it naturally; it gets typed the way you'd have written it. Everything runs offline, with no LLM. Turn each one on under **Settings → Post-process**, or in `user_settings.yaml`:
+
+| You say | You get | Setting |
+|---|---|---|
+| "Let's meet at 2, actually 3" | Let's meet at 3 | `postprocess.backtrack.enabled` |
+| "Ship it Tuesday, no wait, Wednesday" | Ship it Wednesday | `postprocess.backtrack.enabled` |
+| "I I think we we should go" | I think we should go | `postprocess.remove_repeated_words` |
+| "Groceries: first, milk. Second, eggs." | Groceries:<br>1. Milk<br>2. Eggs | `postprocess.list_formatting` |
+| "Thanks for your help. My signature." | Thanks for your help. Best,<br>Rohit | `postprocess.snippets` |
+| "book the flight, scratch that, cancel it" | cancel it | `postprocess.voice_editing` |
+
+Backtrack only acts when a cue ("actually", "I mean", "no wait", "sorry", …) is followed by a number, time, weekday or month that replaces an earlier one in the same sentence, so everyday prose like "I actually like it" is never changed.
+
+**Snippets** are defined once:
+
+```yaml
+postprocess:
+  snippets:
+    - trigger: my signature
+      expansion: "Best,\nRohit"
+    - trigger: my address          # mode: alone = only when it's the whole dictation
+      expansion: "1 Main St, Dallas, TX 75201"
+      mode: alone
+```
+
+**Styles** set capitalization and punctuation in one choice: `formal` (full sentences), `casual` (no trailing period), `very_casual` (all lowercase except acronyms and your own terms) and `verbatim` (exactly as heard). Set `postprocess.style` globally, or `style:` on a rule in `app_rules.yaml`. The shipped rules make email formal, chat casual, and code editors and terminals verbatim.
 
 ---
 
@@ -312,6 +350,11 @@ Delete the file and restart to reset to defaults. Highlights:
 | `whisper.hotwords` | `[]` | Words the model should favour — names, jargon |
 | `hotkey.recording_hotkey` | `ctrl+win` | Configurable |
 | `hotkey.recording_mode` | `push_to_talk` | `push_to_talk` (hold to talk) or `toggle` |
+| `hotkey.double_tap_to_lock` | `false` | Double-tap the record hotkey for hands-free recording |
+| `hotkey.paste_last_hotkey` | `alt+shift+z` | Type your last dictation again (`ctrl+option+v` on macOS) |
+| `postprocess.style` | `""` | `formal` / `casual` / `very_casual` / `verbatim`, or per app in `app_rules.yaml` |
+| `postprocess.snippets` | `[]` | Spoken shortcuts expanded inline |
+| `audio.whisper_mode.enabled` | `false` | Boost quiet speech before transcription |
 | `vad.vad_realtime_enabled` | `true` | Auto-stop on silence |
 | `clipboard.auto_paste` | `true` | `false` = copy only |
 | `clipboard.delivery_method` | `paste` | `paste` (Ctrl+V) or `type` (direct injection) |

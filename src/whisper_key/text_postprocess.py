@@ -1,10 +1,11 @@
 # text_postprocess.py
 # The text-shaping stage between Whisper and delivery. Runs an ordered pipeline
-# over the raw transcript: spoken editing commands ("scratch that") → inline
-# voice formatting (say "comma") → deterministic smart formatting (times/emails/
-# URLs) → user corrections → filler/casing/punctuation tidying → optional Ollama
-# polish. Every stage is opt-in via the `postprocess` config section and pure
-# except the final Ollama call, so output stays predictable and fully offline.
+# over the raw transcript: spoken editing ("scratch that", "actually 3") →
+# inline voice formatting (say "comma") → deterministic smart formatting
+# (times/emails/URLs) → user corrections → fillers, lists, style → snippets →
+# casing/punctuation tidying → optional Ollama polish. Every stage is opt-in via
+# the `postprocess` config section and pure except the final Ollama call, so
+# output stays predictable and fully offline.
 
 import functools
 import json
@@ -12,6 +13,10 @@ import logging
 import re
 import urllib.error
 import urllib.request
+
+from . import dictation_cleanup
+from .snippets import expand_snippets
+from .styles import resolve_style
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +49,25 @@ def postprocess(text: str, config: dict) -> str:
     if not text or not config:
         return text
 
+    # A named style is shorthand for a set of the toggles below. The app-rule
+    # path resolves it beforehand (see app_rules.effective_postprocess_config)
+    # and drops the key; this covers every other caller.
+    if config.get('style'):
+        config = {**config, **resolve_style(config['style'], config)}
+
     # Spoken editing commands ("scratch that") operate on the raw dictation flow,
     # so they run first — before any symbol/format rewriting.
     if config.get('voice_editing', False):
         text = _apply_voice_editing(text)
+
+    # "at 2, actually 3" → "at 3". Same raw-flow reasoning as voice editing.
+    backtrack_cfg = config.get('backtrack')
+    if isinstance(backtrack_cfg, dict) and backtrack_cfg.get('enabled', False):
+        cues = backtrack_cfg.get('cues') or dictation_cleanup.DEFAULT_BACKTRACK_CUES
+        text = dictation_cleanup.apply_backtrack(text, cues)
+
+    if config.get('remove_repeated_words', False):
+        text = dictation_cleanup.remove_repeated_words(text)
 
     if config.get('inline_formatting', False):
         text = _apply_inline_formatting(text, config)
@@ -77,13 +97,32 @@ def postprocess(text: str, config: dict) -> str:
     if config.get('strip_filler_words', False):
         text = _strip_fillers(text)
 
+    became_list = False
+    if config.get('list_formatting', False):
+        before = text
+        text = dictation_cleanup.apply_list_formatting(
+            text, style=str(config.get('list_style', 'numbered')))
+        became_list = text != before
+
+    # Before snippets, so a style never lowercases a snippet's expansion; the
+    # user's corrected terms keep their casing too.
+    if config.get('lowercase', False):
+        text = dictation_cleanup.apply_lowercase(text, _protected_terms(config))
+
+    # A dictation that was only a snippet trigger is delivered exactly as the
+    # snippet is written: no casing or punctuation tidying, no LLM polish.
+    text, whole_snippet = expand_snippets(text, config.get('snippets'))
+    if whole_snippet:
+        return text
+
     if config.get('strip_trailing_period', False):
         text = _strip_trailing_period(text)
 
     if config.get('capitalize_first', False):
         text = _capitalize_first(text)
 
-    if config.get('ensure_punctuation', False):
+    # A list's last item takes no closing period.
+    if config.get('ensure_punctuation', False) and not became_list:
         text = _ensure_punctuation(text)
 
     # Same defensive shape check as smart_formatting above — a malformed
@@ -95,6 +134,19 @@ def postprocess(text: str, config: dict) -> str:
             text = polished
 
     return text
+
+
+# Terms the user has taught the app (corrections and replacement targets),
+# whose casing the lowercase style must leave alone.
+def _protected_terms(config: dict) -> list:
+    terms = []
+    corrections = config.get('corrections')
+    if isinstance(corrections, dict):
+        terms.extend(str(k) for k in corrections)
+    for item in config.get('replacements') or ():
+        if isinstance(item, dict) and item.get('to'):
+            terms.extend(str(item['to']).split())
+    return terms
 
 
 def _strip_trailing_period(text: str) -> str:

@@ -146,6 +146,7 @@ def setup_audio_recorder(audio_config, state_manager, vad_manager, streaming_man
         on_streaming_result=state_manager.handle_streaming_result,
         device=audio_config['input_device'],
         noise_suppression_config=audio_config.get('noise_suppression') or {},
+        whisper_mode_config=audio_config.get('whisper_mode') or {},
     )
 
 def setup_vad(vad_config):
@@ -293,7 +294,10 @@ def setup_hotkey_listener(hotkey_config, state_manager, voice_commands_enabled=T
         rephrase_hotkey=hotkey_config.get('rephrase_hotkey'),
         pause_hotkey=hotkey_config.get('pause_hotkey'),
         transforms_manager=getattr(state_manager, 'transforms_manager', None),
-        recording_mode=hotkey_config.get('recording_mode', 'push_to_talk')
+        recording_mode=hotkey_config.get('recording_mode', 'push_to_talk'),
+        paste_last_hotkey=hotkey_config.get('paste_last_hotkey'),
+        double_tap_to_lock=bool(hotkey_config.get('double_tap_to_lock', False)),
+        double_tap_window_ms=int(hotkey_config.get('double_tap_window_ms', 400) or 400),
     )
 
 def shutdown_app(hotkey_listener: HotkeyListener, state_manager: StateManager, logger: logging.Logger):

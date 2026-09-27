@@ -2,21 +2,49 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.0]
 
-### Fixed
-- **macOS: the fallback window, hotkey cheat sheet and add-word dialog could
-  never open** (follow-through on
-  [#14](https://github.com/drajb/whisper-local/issues/14)). Each built its Tk
-  window on a background thread, which macOS doesn't allow. They now open in a
-  small child process where Tk has the main thread to itself. A dictated
-  transcript is handed over through a pipe, never on the command line. The
-  `--history` and `--cheat-sheet` commands run their window on the main thread.
-  Nothing changes on Windows.
+Wispr Flow–style editing, fully offline, plus fixes for both issues reported
+on 0.19.0. Every new feature is off by default except the paste-last hotkey
+and the per-app styles in the shipped app rules.
 
-## [0.19.1]
-
-Both issues reported by users on 0.19.0.
+### Added
+- **Backtrack.** Correct yourself mid-sentence: "let's meet at 2, actually 3"
+  types "let's meet at 3", and "Tuesday, no wait, Wednesday" types
+  "Wednesday". It acts only when a cue ("actually", "I mean", "no wait",
+  "sorry", "make that", …) is followed by a number, time, weekday or month that
+  replaces an earlier one in the same sentence, so "I actually like it" is
+  never touched. Deterministic, no LLM. (`postprocess.backtrack`)
+- **Stutter removal.** "I I think" becomes "I think". Genuine doubles ("had
+  had") and emphasis ("very very") are kept. (`postprocess.remove_repeated_words`)
+- **Spoken lists.** "first, milk. second, eggs" becomes a numbered (or
+  bulleted) list on separate lines. It fires only on markers counting up from
+  one, each followed by punctuation, so "one of the two options" stays prose.
+  (`postprocess.list_formatting`, `list_style`)
+- **Snippets.** Say a trigger such as "my signature" anywhere in normal
+  dictation and its expansion is typed, with `${date}`, `${time}` and
+  `${clipboard}` filled in. `mode: alone` limits a snippet to dictations that
+  are only the trigger. (`postprocess.snippets`)
+- **Writing styles.** `formal`, `casual`, `very_casual` (all lowercase except
+  acronyms and your own terms) and `verbatim` bundle the formatting toggles
+  into one choice. Set one globally (`postprocess.style`) or per app
+  (`style:` in `app_rules.yaml`), or define your own under `postprocess.styles`.
+  The shipped rules now make email formal, chat casual, and code editors and
+  terminals verbatim.
+- **Paste last dictation.** `Alt+Shift+Z` (`Ctrl+Option+V` on macOS) types
+  your last dictation again, e.g. after it landed in the wrong window. It fires
+  when you let go of the keys, so held modifiers can't merge into the paste,
+  and it never presses Enter. (`hotkey.paste_last_hotkey`)
+- **Hands-free lock.** In push-to-talk mode, double-tap the record hotkey to
+  keep recording without holding it, and tap once more to stop. A normal hold
+  works as before. (`hotkey.double_tap_to_lock`)
+- **Whisper mode.** Boosts quiet recordings before transcription so you can
+  dictate under your breath. It only ever raises the volume, capped, and
+  leaves silence alone. (`audio.whisper_mode`)
+- The new options are in the Settings window, the hotkey cheat sheet and the
+  startup hints.
+- **`--doctor` checks the CUDA libraries** when `device: cuda` is configured.
+  Before, it reported "All checks passed" on a machine that could not transcribe.
 
 ### Fixed
 - **macOS: the app aborted on every launch (exit 134)**
@@ -51,10 +79,18 @@ Both issues reported by users on 0.19.0.
   the CPU, instead of hanging on the first dictation. On windowless launches
   (autostart), where nobody can answer that prompt, the app uses the CPU for
   that session.
+- **macOS: the fallback window, hotkey cheat sheet and add-word dialog could
+  never open** (follow-through on
+  [#14](https://github.com/drajb/whisper-local/issues/14)). Each built its Tk
+  window on a background thread, which macOS doesn't allow. They now open in a
+  small child process where Tk has the main thread to itself. A dictated
+  transcript is handed over through a pipe, never on the command line. The
+  `--history` and `--cheat-sheet` commands run their window on the main thread.
+  Nothing changes on Windows.
 
-### Added
-- **`--doctor` checks the CUDA libraries** when `device: cuda` is configured.
-  Before, it reported "All checks passed" on a machine that could not transcribe.
+### Changed
+- The shipped per-app rules use named styles instead of individual toggles.
+  Existing `app_rules.yaml` files are left as they are.
 
 ## [0.19.0]
 
