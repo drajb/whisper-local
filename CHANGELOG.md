@@ -2,6 +2,48 @@
 
 History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1]
+
+Both issues reported by users on 0.19.0.
+
+### Fixed
+- **macOS: the app aborted on every launch (exit 134)**
+  ([#14](https://github.com/drajb/whisper-local/issues/14), @rusifele). Startup
+  created the shared `NSApplication` through pyobjc before any Tk window
+  existed. Tk 9 installs its own subclass, `TKApplication`, only when it gets
+  there first, and its drawing code calls selectors that exist only on that
+  subclass. So when the level overlay built its window, Tk sent `-macOSVersion`
+  to a plain `NSApplication` and the resulting `NSException` killed the process.
+  That isn't a Python exception, so the overlay's `try`/`except` couldn't catch
+  it and the log just stopped. Tk now creates the shared application first,
+  through a hidden root kept for the life of the process. Tk windows on macOS
+  also have to live on the main thread, which the menu-bar loop already owns, so
+  the level overlay is off on macOS for now. The first-run welcome window runs on
+  the main thread there, closes with `quit()` before `destroy()` (with the hidden
+  root alive, `destroy()` alone would have hung every first launch), and closes
+  when the app is asked to quit, where SIGTERM used to be swallowed.
+- **NVIDIA GPU: transcription hung at "Transcribing…"**
+  ([#15](https://github.com/drajb/whisper-local/issues/15), @stusona, diagnosed
+  by @mav8557). Two bugs. First, the GPU check only asked CTranslate2 whether
+  CUDA was supported, which the driver alone answers yes to, so onboarding
+  switched the app to CUDA on machines with no cuBLAS or cuDNN at all. Those
+  libraries load lazily on the first transcription, which then hung. The check
+  now also loads `cublas64_12`, `cublasLt64_12`, `cudnn64_9`, `cudnn_ops64_9` and
+  `cudnn_cnn64_9`, and offers to install them if any are missing. Second, the
+  CUDA libraries onboarding pip-installs land in `site-packages\nvidia\*\bin`,
+  which is on no DLL search path. Installing them did nothing until they were
+  copied by hand into CTranslate2's folder. Those folders are now registered at
+  startup.
+  Configs already set to `device: cuda` without the libraries now stop at launch
+  with a message naming what is missing, and offer to re-run GPU setup or use
+  the CPU, instead of hanging on the first dictation. On windowless launches
+  (autostart), where nobody can answer that prompt, the app uses the CPU for
+  that session.
+
+### Added
+- **`--doctor` checks the CUDA libraries** when `device: cuda` is configured.
+  Before, it reported "All checks passed" on a machine that could not transcribe.
+
 ## [0.19.0]
 
 Everything reported by users on 0.18.3.

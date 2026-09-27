@@ -71,6 +71,16 @@ class LevelOverlay:
     def start(self):
         if not self._available or (self._thread and self._thread.is_alive()):
             return
+        # The pill needs a Tk mainloop running for the life of the app. Where Tk
+        # is main-thread-only (macOS), the main thread is already pumping the
+        # NSApplication loop, and a worker-thread root aborts the whole process
+        # (issue #14). Stand down rather than take the app with us; every other
+        # method is inert once _available is False.
+        from .utils import tk_requires_main_thread
+        if tk_requires_main_thread():
+            logger.info("Level overlay not supported on this platform yet; disabled")
+            self._available = False
+            return
         self._thread = threading.Thread(target=self._run, daemon=True, name='level-overlay')
         self._thread.start()
         self._ready.wait(timeout=2.0)

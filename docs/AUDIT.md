@@ -8,6 +8,44 @@
 
 ---
 
+## Round 11 (0.19.1) — user-reported issues (2026-09)
+
+Both open issues. Each came with a diagnosis and a patch on a fork. The root
+causes were confirmed against our own code and the fixes written here. Neither
+fork was merged.
+
+- **ISS-14 (Critical, macOS app unusable)** Whoever calls `sharedApplication()`
+  first decides NSApp's class. pyobjc did, so Tk 9's drawing code sent
+  `TKApplication`-only selectors to a plain `NSApplication` and the process
+  aborted (an `NSException`, invisible to Python). Tk now creates the app first
+  via a hidden root kept alive in `platform/macos/app.py`. Added the mirrored
+  `TK_MAIN_THREAD_ONLY` constant and `utils.tk_requires_main_thread()`: the
+  overlay stands down on macOS, and the welcome window runs inline on the main
+  thread with a `quit()`-then-`destroy()` teardown and shutdown-event polling.
+  The teardown trap was reproduced with real Tk under Xvfb: with a second root
+  alive on the thread, the 0.19.0 `destroy()`-only close hangs `mainloop()`, and
+  the new one returns.
+  **This amends the multi-Tk-root decision below.** "Each root on its own daemon
+  thread" holds on Windows only. On macOS a Tk window must be created on the
+  main thread. The fallback window, cheat sheet, add-word dialog and the
+  `--history` / `--cheat-sheet` CLI windows still build their root on a worker
+  thread and need a main-thread or subprocess home before they can work on
+  macOS. Tracked as a follow-up.
+- **ISS-15 (High, GPU dictation hangs)** `_test_ct2_gpu` only proved the NVIDIA
+  driver answers, so onboarding enabled CUDA with no cuBLAS/cuDNN on disk. It now
+  loads the five libraries ctranslate2 4.x pulls in on first inference, using
+  `winmode=0` so the probe searches exactly as ctranslate2 does, PATH included.
+  pip's `nvidia-*-cu12` DLL folders are registered at startup (`add_dll_directory`
+  for Python-side loads, PATH for native `LoadLibrary`). A CUDA engine now fails
+  fast into the existing GPU-recovery prompt instead of hanging. That prompt no
+  longer waits for a key on windowless launches, and `--doctor` gained a CUDA
+  libraries check. Not verifiable on real hardware from here, so the probe and
+  path logic are covered with faked loaders.
+
+212 tests pass (21 new).
+
+---
+
 ## Round 10 (0.19.0) — user-reported issues (2026-09)
 
 Five issues from users running 0.18.3. Every root cause was reproduced locally

@@ -94,6 +94,9 @@ class WhisperEngine:
                       "first run only. This can take a few minutes; a progress bar "
                       "appears below.")
 
+            if self.device == 'cuda':
+                self._verify_gpu_runtime()
+
             model_source = self._get_model_source(self.model_key)
             self.model = WhisperModel(
                 model_source,
@@ -112,7 +115,24 @@ class WhisperEngine:
         except Exception as e:
             self.logger.error(f"Failed to load Whisper model: {e}")
             raise
-    
+
+    # Fail fast when the CUDA runtime is incomplete. The model itself loads
+    # without cuBLAS/cuDNN; their absence only shows on the first inference,
+    # as a hang rather than an error (issue #15). Raising RuntimeError here
+    # routes through the caller's GPU-failure path, which offers GPU setup or
+    # CPU instead of freezing on the user's first dictation.
+    def _verify_gpu_runtime(self):
+        try:
+            from .hardware_detection import missing_gpu_libraries
+        except ImportError:
+            return  # no platform backend (Linux CI): nothing to probe
+        missing = missing_gpu_libraries()
+        if missing:
+            raise RuntimeError(
+                f"CUDA libraries not found: {', '.join(missing)}. "
+                "Re-run GPU setup to install them, or switch to CPU."
+            )
+
     def _load_model_async(self,
                           new_model_key: str,
                           progress_callback: Optional[Callable[[str], None]] = None):

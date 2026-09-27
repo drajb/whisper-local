@@ -50,6 +50,8 @@ Note: `cuda` applies to both [NVIDIA](#nvidia-cuda) and [AMD](#amd--rdna-2-rocm)
 pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12
 ```
 
+Install them into the same Python environment Whisper Local runs in. Whisper Local finds them in `site-packages\nvidia\*\bin` on its own, so there's no need to copy DLLs anywhere. Run `whisper-local --doctor` to confirm: the **CUDA libraries** line should read `[OK]`.
+
 ### Option B: CUDA Toolkit installer
 
 Install CUDA Toolkit 12 (CUDA 13 is not yet supported by faster-whisper):

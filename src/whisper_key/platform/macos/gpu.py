@@ -4,3 +4,8 @@
 # Windows mirror: platform/windows/gpu.py (the real detection).
 def detect_and_print(configured_device):
     return (None, None, False)
+
+
+# No CUDA backend on macOS, so there is never anything missing.
+def missing_gpu_libraries():
+    return []
