@@ -1011,8 +1011,10 @@ class StateManager:
         return list(self.recent_transcriptions)
 
     # Types the last dictation again at the cursor (paste-last hotkey), e.g.
-    # after it went to the wrong window. Delivered exactly as before, minus
-    # auto-send, so a re-paste never fires off a message by itself.
+    # after it went to the wrong window. Never auto-sends, and the foreground
+    # app's rule still applies: nothing goes into a suppressed app (password
+    # managers), and copy-only apps (terminals, where a pasted newline runs a
+    # command) get the clipboard instead.
     def paste_last_transcription(self) -> bool:
         text = self.last_transcription
         if not text:
@@ -1022,7 +1024,20 @@ class StateManager:
             self.logger.info("Paste-last ignored: busy recording or transcribing")
             return False
         self._wait_for_modifiers_released()
+        rule = None
         try:
+            rule = self.app_rules.match_for_foreground()
+        except Exception as e:
+            self.logger.debug(f"Paste-last rule lookup failed: {e}")
+        try:
+            if rule and rule.get('suppress'):
+                self.logger.info(f"Paste-last suppressed by app rule: {rule.get('match')}")
+                self.system_tray.notify("Not pasted: this app is excluded in app_rules.yaml.")
+                return False
+            if rule and rule.get('auto_paste') is False:
+                self.clipboard_manager.copy_text(text)
+                self.system_tray.notify("Last dictation copied — this app is copy-only.")
+                return True
             self.clipboard_manager.deliver_transcription(text, use_auto_enter=False)
         except Exception as e:
             self.logger.error(f"Paste-last failed: {e}")

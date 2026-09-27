@@ -32,12 +32,14 @@ and the per-app styles in the shipped app rules.
   The shipped rules now make email formal, chat casual, and code editors and
   terminals verbatim.
 - **Paste last dictation.** `Alt+Shift+Z` (`Ctrl+Option+V` on macOS) types
-  your last dictation again, e.g. after it landed in the wrong window. It fires
-  when you let go of the keys, so held modifiers can't merge into the paste,
-  and it never presses Enter. (`hotkey.paste_last_hotkey`)
+  your last dictation again, e.g. after it landed in the wrong window. It waits
+  until you let go of the keys, so held modifiers can't merge into the paste,
+  and it never presses Enter. App rules still apply: nothing is pasted into a
+  password manager, and copy-only apps like terminals get the clipboard
+  instead. (`hotkey.paste_last_hotkey`)
 - **Hands-free lock.** In push-to-talk mode, double-tap the record hotkey to
-  keep recording without holding it, and tap once more to stop. A normal hold
-  works as before. (`hotkey.double_tap_to_lock`)
+  keep recording without holding it, and tap once more (or press the stop key)
+  to stop. A normal hold works as before. (`hotkey.double_tap_to_lock`)
 - **Whisper mode.** Boosts quiet recordings before transcription so you can
   dictate under your breath. It only ever raises the volume, capped, and
   leaves silence alone. (`audio.whisper_mode`)
@@ -89,8 +91,15 @@ and the per-app styles in the shipped app rules.
   Nothing changes on Windows.
 
 ### Changed
-- The shipped per-app rules use named styles instead of individual toggles.
+- The shipped per-app rules use named styles instead of individual toggles, and
+  the specific app rules (password managers, terminals, code editors) now come
+  before the chat and email rules. Title matching is by substring, so a code
+  editor showing `slack_bot.py` used to match the chat rule and auto-send.
   Existing `app_rules.yaml` files are left as they are.
+- Custom `postprocess.corrections` entries are no longer dropped when a setting
+  is saved from the Settings window or the tray.
+- `no` / `off` in the post-processing settings now mean off. YAML 1.2 reads
+  them as text, which Python treated as "on".
 
 ## [0.19.0]
 

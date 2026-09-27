@@ -33,6 +33,27 @@
 # it hot-reloads on the next transcription.
 
 rules:
+  # Order matters: first match wins, and window-title matching is by
+  # substring. So the specific app rules come first; otherwise a code
+  # editor showing "slack_bot.py" would match the chat rule (and auto-send).
+
+  # Password managers: never deliver dictation into a password field
+  - match: ["1password.exe", "1password-7.exe", "lastpass.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe"]
+    suppress: true
+
+  # Terminals: copy only — pasting into a terminal can run commands
+  - match: ["windowsterminal.exe", "wt.exe", "conhost.exe", "powershell.exe", "cmd.exe", "alacritty.exe", "wezterm-gui.exe"]
+    auto_paste: false
+    style: verbatim
+
+  # Code editors: never auto-send, never paste — copy only so the user
+  # decides where it lands; identifier/path bias. Keep it verbatim: no forced
+  # capitalization or trailing period (code isn't prose).
+  - match: ["code.exe", "cursor.exe", "windsurf.exe", "rider64.exe", "pycharm64.exe", "idea64.exe"]
+    auto_paste: false
+    initial_prompt: "Programming context. Identifiers, snake_case, camelCase, file paths, regex."
+    style: verbatim
+
   # Chat apps: send the message immediately, casual tone bias
   - match: ["slack.exe", "discord.exe", "telegram.exe", "whatsapp.exe", "Slack", "Discord"]
     auto_send: true
@@ -44,20 +65,3 @@ rules:
   - match: ["outlook.exe", "thunderbird.exe", "Mail"]
     style: formal
     initial_prompt: "Professional email body. Polite, clear sentences."
-
-  # Code editors: never auto-send, never paste — copy only so the user
-  # decides where it lands; identifier/path bias. Keep it verbatim: no forced
-  # capitalization or trailing period (code isn't prose).
-  - match: ["code.exe", "cursor.exe", "windsurf.exe", "rider64.exe", "pycharm64.exe", "idea64.exe"]
-    auto_paste: false
-    initial_prompt: "Programming context. Identifiers, snake_case, camelCase, file paths, regex."
-    style: verbatim
-
-  # Password managers: never deliver dictation into a password field
-  - match: ["1password.exe", "1password-7.exe", "lastpass.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe"]
-    suppress: true
-
-  # Terminals: copy only — pasting into a terminal can run commands
-  - match: ["windowsterminal.exe", "wt.exe", "conhost.exe", "powershell.exe", "cmd.exe", "alacritty.exe", "wezterm-gui.exe"]
-    auto_paste: false
-    style: verbatim

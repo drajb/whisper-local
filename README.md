@@ -211,7 +211,7 @@ postprocess:
       mode: alone
 ```
 
-**Styles** set capitalization and punctuation in one choice: `formal` (full sentences), `casual` (no trailing period), `very_casual` (all lowercase except acronyms and your own terms) and `verbatim` (exactly as heard). Set `postprocess.style` globally, or `style:` on a rule in `app_rules.yaml`. The shipped rules make email formal, chat casual, and code editors and terminals verbatim.
+**Styles** set capitalization and punctuation in one choice: `formal` (full sentences), `casual` (no trailing period), `very_casual` (all lowercase except acronyms and your own terms) and `verbatim` (no automatic capitals, periods or lists). Set `postprocess.style` globally, or `style:` on a rule in `app_rules.yaml`. The shipped rules make email formal, chat casual, and code editors and terminals verbatim.
 
 ---
 

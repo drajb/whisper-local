@@ -30,9 +30,29 @@ Design constraints carried over from earlier rounds:
   (`keyboard.modifiers_held()`, new and mirrored), because a synthetic Ctrl+V
   while Alt+Shift is held arrives as Ctrl+Alt+Shift+V.
 
-Real hotkey feel (double-tap timing, paste-last) still needs a hands-on test on
-Windows and macOS; the state machine and wiring are unit-tested with fakes.
-Settings-window round trip verified with real Tk under Xvfb.
+A pre-release adversarial review found, and this round fixed:
+- a blocker: paste-last never fired on macOS, whose backend only reports
+  releases for modifier-only chords (it now fires on press and waits for the
+  modifiers);
+- custom `styles`/`corrections` being dropped on any settings save (now in
+  `EXTENSIBLE_PATHS`);
+- backtrack treating the "." in "2.5" as a sentence end, matching "am" inside
+  "amazing", and rewriting prose after a cue ("3 movies, actually one of
+  them…"): a correction now needs the value to end the phrase or repeat the
+  words it replaces;
+- stutter removal merging "you, you're" and clause-spanning repeats;
+- the default stop key (part of the record chord) breaking the double-tap
+  lock;
+- paste-last ignoring `suppress`/copy-only app rules;
+- whisper mode boosting before the silence trims;
+- hand-edited non-mapping sections crashing the Settings window;
+- YAML `no` switching toggles on.
+All pinned in `ReleaseReviewFixTests`.
+
+Real hotkey feel (double-tap timing, paste-last) and the macOS Tk preload with
+the menu-bar loop still need a hands-on test on Windows and macOS; the state
+machine and wiring are unit-tested with fakes. Settings round trip and all
+Tk windows verified with real Tk under Xvfb.
 
 ---
 

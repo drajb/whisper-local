@@ -81,7 +81,18 @@ def expand_snippets(text: str, snippets) -> tuple:
     if pattern is None:
         return text, False
 
+    text_end = len(text.rstrip())
+
     def replace(match):
-        spoken_trigger = ' '.join(match.group(0).rstrip(_TRAILING_PUNCT).split()).lower()
-        return _render(lookup[spoken_trigger])
+        spoken = match.group(0)
+        trigger_text = spoken.rstrip(_TRAILING_PUNCT)
+        expansion = lookup.get(' '.join(trigger_text.split()).lower())
+        if expansion is None:
+            return spoken  # case-folding quirk (e.g. Turkish İ): leave as spoken
+        expansion = _render(expansion)
+        # Whisper's own punctuation after the trigger is dropped only at the
+        # very end; mid-sentence it belongs to the sentence ("…my email, then…").
+        if match.end() < text_end:
+            expansion += spoken[len(trigger_text):]
+        return expansion
     return pattern.sub(replace, text), False

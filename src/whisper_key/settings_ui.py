@@ -449,7 +449,8 @@ def _build_audio_tab(nb, cm, vars_, row_index):
     _row(tab, 'audio.noise_suppression.strength',
          'Noise strength (0.0 – 1.0)', lambda p: _entry(p, v), row_index)
 
-    wm = (cfg.get('audio') or {}).get('whisper_mode') or {}
+    wm = (cfg.get('audio') or {}).get('whisper_mode')
+    wm = wm if isinstance(wm, dict) else {}
     v = tk.BooleanVar(value=bool(wm.get('enabled', False)))
     vars_['audio.whisper_mode.enabled'] = v
     _check(tab, 'audio.whisper_mode.enabled',
@@ -565,7 +566,8 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
         vars_[path] = v
         _check(tab, path, label, v, row_index)
 
-    bt = pp.get('backtrack') or {}
+    bt = pp.get('backtrack')
+    bt = bt if isinstance(bt, dict) else {}
     v = tk.BooleanVar(value=bool(bt.get('enabled', False)))
     vars_['postprocess.backtrack.enabled'] = v
     _check(tab, 'postprocess.backtrack.enabled',
