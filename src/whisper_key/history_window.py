@@ -15,7 +15,9 @@ _instance = None
 
 # Public entry point. Spawns the window on a daemon thread so the caller
 # (CLI or tray) doesn't block. The window manages its own lifecycle.
-def show_history():
+# blocking=True runs it on the calling thread instead, for platforms where Tk
+# must own the main thread (macOS; see window_launcher.py).
+def show_history(blocking: bool = False):
     global _instance
     with _lock:
         try:
@@ -187,6 +189,10 @@ def show_history():
             _refresh()
 
         root.mainloop()
+
+    if blocking:
+        _run()
+        return None
 
     # Returned so a CLI caller can wait on it. The thread is a daemon, so a
     # process that exits without joining kills the window instantly — which is

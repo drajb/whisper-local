@@ -534,6 +534,9 @@ class SystemTray:
 
     def _open_cheat_sheet(self, icon=None, item=None):
         try:
+            from .window_launcher import open_in_child_process
+            if open_in_child_process('cheat-sheet'):
+                return
             from .cheat_sheet import show_cheat_sheet
             show_cheat_sheet(
                 config_manager=self.config_manager,
@@ -563,6 +566,9 @@ class SystemTray:
 
     def _open_add_word_dialog(self, icon=None, item=None):
         try:
+            from .window_launcher import open_in_child_process
+            if open_in_child_process('add-word'):
+                return
             from .dictionary import show_add_word_dialog
             show_add_word_dialog()
         except Exception as e:

@@ -27,10 +27,11 @@ fork was merged.
   the new one returns.
   **This amends the multi-Tk-root decision below.** "Each root on its own daemon
   thread" holds on Windows only. On macOS a Tk window must be created on the
-  main thread. The fallback window, cheat sheet, add-word dialog and the
-  `--history` / `--cheat-sheet` CLI windows still build their root on a worker
-  thread and need a main-thread or subprocess home before they can work on
-  macOS. Tracked as a follow-up.
+  main thread. The fallback window, cheat sheet and add-word dialog now open
+  in a child process there (`window_launcher.py`, hidden `--window NAME` flag,
+  payload over stdin so a transcript never lands in argv), and the `--history`
+  / `--cheat-sheet` CLI windows run on the main thread. All four were built
+  with real Tk on the main thread under Xvfb.
 - **ISS-15 (High, GPU dictation hangs)** `_test_ct2_gpu` only proved the NVIDIA
   driver answers, so onboarding enabled CUDA with no cuBLAS/cuDNN on disk. It now
   loads the five libraries ctranslate2 4.x pulls in on first inference, using
