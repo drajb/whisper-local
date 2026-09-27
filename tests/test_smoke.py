@@ -2235,3 +2235,380 @@ class UserReportedSeptemberTests(unittest.TestCase):
         source = (ROOT / 'src' / 'whisper_key' / 'platform' / 'macos' / 'app.py').read_text(encoding='utf-8')
         self.assertIn('NSThread.isMainThread()', source, 'fast path when already on main')
         self.assertIn('mainQueue', source, 'must dispatch to the main queue')
+
+
+class UserReportedLateSeptemberTests(unittest.TestCase):
+    """Issues #14 and #15, reported by users running 0.19.0."""
+
+    # Load a platform backend file directly, so it can be exercised on any OS
+    # with its OS-only dependencies faked out.
+    def _load(self, relative_path, name):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            name, str(ROOT / 'src' / 'whisper_key' / relative_path))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    # --- #15: pip-installed CUDA libraries were on no DLL search path ---
+    def test_nvidia_dll_dirs_are_found_in_site_packages(self):
+        import tempfile
+        from whisper_key.utils import find_nvidia_dll_dirs
+        with tempfile.TemporaryDirectory() as root:
+            for lib in ('cublas', 'cudnn', 'cuda_runtime'):
+                (Path(root) / 'nvidia' / lib / 'bin').mkdir(parents=True)
+            (Path(root) / 'nvidia' / 'cudnn' / 'include').mkdir()
+            found = find_nvidia_dll_dirs([root, root])  # duplicate root on purpose
+        names = sorted(Path(d).parent.name for d in found)
+        self.assertEqual(names, ['cublas', 'cuda_runtime', 'cudnn'], 'each bin dir exactly once')
+
+    def test_nvidia_dll_path_registers_both_loaders_on_windows(self):
+        import unittest.mock as mock
+        from whisper_key import utils
+        dirs = [os.path.join('sp', 'nvidia', 'cublas', 'bin'),
+                os.path.join('sp', 'nvidia', 'cudnn', 'bin')]
+        added = []
+        with mock.patch.object(utils.sys, 'platform', 'win32'), \
+             mock.patch.object(utils, 'find_nvidia_dll_dirs', return_value=dirs), \
+             mock.patch.object(utils.os, 'add_dll_directory', added.append, create=True), \
+             mock.patch.dict(os.environ, {'PATH': 'existing'}):
+            utils.setup_nvidia_dll_path()
+            utils.setup_nvidia_dll_path()  # idempotent: no PATH growth
+            path_parts = os.environ['PATH'].split(os.pathsep)
+        # add_dll_directory serves ctypes/extension loads; PATH serves the plain
+        # LoadLibrary calls ctranslate2 and cuDNN make. Both are needed.
+        self.assertEqual(added[:2], dirs)
+        self.assertEqual(path_parts, dirs + ['existing'])
+
+    def test_nvidia_dll_path_is_a_no_op_off_windows(self):
+        import unittest.mock as mock
+        from whisper_key import utils
+        with mock.patch.object(utils.sys, 'platform', 'darwin'), \
+             mock.patch.object(utils, 'find_nvidia_dll_dirs') as finder:
+            utils.setup_nvidia_dll_path()
+        finder.assert_not_called()
+
+    def test_dll_path_is_set_up_before_the_ml_stack_imports(self):
+        source = (ROOT / 'src' / 'whisper_key' / 'main.py').read_text(encoding='utf-8')
+        self.assertLess(source.index('setup_nvidia_dll_path()'),
+                        source.index('from .whisper_engine import'))
+
+    def _gpu_probe(self, loadable, compute_types=('float16',)):
+        import types
+        import unittest.mock as mock
+        gpu = self._load('platform/windows/gpu.py', 'wk_gpu_probe')
+
+        def win_dll(name, winmode=None):
+            # winmode=0 means the plain LoadLibrary search (PATH included),
+            # which is what ctranslate2 itself uses.
+            self.assertEqual(winmode, 0)
+            if name not in loadable:
+                raise OSError(f'{name} not found')
+        gpu.ctypes = types.SimpleNamespace(WinDLL=win_dll)
+        ct2 = types.ModuleType('ctranslate2')
+        ct2.get_supported_compute_types = lambda device: list(compute_types)
+        patcher = mock.patch.dict(sys.modules, {'ctranslate2': ct2})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return gpu
+
+    def test_gpu_probe_fails_without_cublas_and_cudnn(self):
+        import io
+        import contextlib
+        # The reported machine: driver present, no cuBLAS/cuDNN anywhere. The
+        # probe used to pass here and onboarding switched the app to CUDA.
+        gpu = self._gpu_probe(loadable=())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertFalse(gpu._test_ct2_gpu('cuda'))
+        self.assertIn('cublas64_12.dll', out.getvalue(), 'name what is missing')
+
+    def test_gpu_probe_passes_when_every_library_loads(self):
+        gpu = self._gpu_probe(loadable=('cublas64_12.dll', 'cublasLt64_12.dll', 'cudnn64_9.dll',
+                                        'cudnn_ops64_9.dll', 'cudnn_cnn64_9.dll'))
+        self.assertTrue(gpu._test_ct2_gpu('cuda'))
+        self.assertEqual(gpu._missing_cuda_libraries(), [])
+
+    def test_gpu_probe_reports_a_single_missing_cudnn_part(self):
+        gpu = self._gpu_probe(loadable=('cublas64_12.dll', 'cublasLt64_12.dll',
+                                        'cudnn64_9.dll', 'cudnn_ops64_9.dll'))
+        self.assertEqual(gpu._missing_cuda_libraries(), ['cudnn_cnn64_9.dll'])
+
+    def test_rocm_builds_are_not_held_to_nvidia_libraries(self):
+        import unittest.mock as mock
+        gpu = self._gpu_probe(loadable=())
+        self.assertTrue(gpu._test_ct2_gpu('rocm'))
+        with mock.patch.object(gpu, '_detect_ct2_variant', return_value='rocm'):
+            self.assertEqual(gpu.missing_gpu_libraries(), [])
+        with mock.patch.object(gpu, '_detect_ct2_variant', return_value='cuda'):
+            self.assertIn('cudnn64_9.dll', gpu.missing_gpu_libraries())
+
+    def test_macos_gpu_mirror_has_the_same_api(self):
+        mac = self._load('platform/macos/gpu.py', 'wk_gpu_mac')
+        self.assertEqual(mac.missing_gpu_libraries(), [])
+
+    # whisper_engine imports numpy, which refuses a second import per process.
+    # Import it BEFORE patch.dict snapshots sys.modules so the restore keeps it.
+    def _preload_numpy(self):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest('numpy not installed')
+
+    def _fake_hardware_detection(self, missing):
+        import types
+        fake = types.ModuleType('whisper_key.hardware_detection')
+        fake.missing_gpu_libraries = lambda: list(missing)
+        return fake
+
+    def test_cuda_engine_fails_fast_instead_of_hanging(self):
+        # Existing configs already say device: cuda. With the libraries absent the
+        # model loads, then the first dictation hangs; the engine must refuse up
+        # front so main's GPU-failure path can offer setup or CPU.
+        self._preload_numpy()
+        import types
+        import unittest.mock as mock
+        fake_fw = types.ModuleType('faster_whisper')
+        fake_fw.WhisperModel = mock.Mock(name='WhisperModel')
+        with mock.patch.dict(sys.modules, {
+                'faster_whisper': fake_fw,
+                'whisper_key.hardware_detection': self._fake_hardware_detection(['cudnn_ops64_9.dll'])}):
+            sys.modules.pop('whisper_key.whisper_engine', None)
+            from whisper_key.whisper_engine import WhisperEngine
+            with self.assertRaises(RuntimeError) as ctx:
+                WhisperEngine(model_key='base', device='cuda', compute_type='float16')
+            fake_fw.WhisperModel.assert_not_called()
+        self.assertIn('cudnn_ops64_9.dll', str(ctx.exception))
+
+    def test_cpu_engine_skips_the_gpu_check(self):
+        self._preload_numpy()
+        import types
+        import unittest.mock as mock
+        fake_fw = types.ModuleType('faster_whisper')
+        fake_fw.WhisperModel = mock.Mock(name='WhisperModel')
+        with mock.patch.dict(sys.modules, {
+                'faster_whisper': fake_fw,
+                'whisper_key.hardware_detection': self._fake_hardware_detection(['cublas64_12.dll'])}):
+            sys.modules.pop('whisper_key.whisper_engine', None)
+            from whisper_key.whisper_engine import WhisperEngine
+            WhisperEngine(model_key='base', device='cpu', compute_type='int8')
+            fake_fw.WhisperModel.assert_called_once()
+
+    def test_gpu_recovery_prompt_is_skipped_without_a_console(self):
+        # The fail-fast check above lands in this prompt. Under pythonw/autostart
+        # nobody can answer it, so it must fall back to CPU rather than wait.
+        import types
+        import io
+        import contextlib
+        import unittest.mock as mock
+        fake_app = types.ModuleType('whisper_key.platform.app')
+        fake_app.getch = lambda: self.fail('must not wait for a keypress')
+        with mock.patch.dict(sys.modules, {'whisper_key.platform.app': fake_app}):
+            for name in ('whisper_key.onboarding', 'whisper_key.terminal_ui'):
+                sys.modules.pop(name, None)
+            from whisper_key import onboarding
+            with mock.patch.object(onboarding.sys, 'stdin', None), \
+                 mock.patch.object(onboarding, 'prompt_choice') as prompt, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                onboarding.handle_gpu_failure(RuntimeError('CUDA libraries not found'), mock.Mock())
+            prompt.assert_not_called()
+
+    def test_doctor_flags_missing_cuda_libraries(self):
+        import io
+        import contextlib
+        import unittest.mock as mock
+        from whisper_key import doctor
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            with mock.patch.dict(sys.modules, {
+                    'whisper_key.hardware_detection': self._fake_hardware_detection(['cublas64_12.dll'])}):
+                self.assertEqual(doctor._check_gpu_libraries(), 1)
+            with mock.patch.dict(sys.modules, {
+                    'whisper_key.hardware_detection': self._fake_hardware_detection([])}):
+                self.assertEqual(doctor._check_gpu_libraries(), 0)
+        self.assertIn('cublas64_12.dll', out.getvalue())
+
+    # --- #14: macOS abort (exit 134) from Tk vs pyobjc's NSApplication ---
+    def test_platform_app_mirrors_declare_the_tk_constraint(self):
+        import re
+        for plat, expected in (('macos', 'True'), ('windows', 'False')):
+            source = (ROOT / 'src' / 'whisper_key' / 'platform' / plat / 'app.py').read_text(encoding='utf-8')
+            self.assertRegex(source, r'(?m)^TK_MAIN_THREAD_ONLY = ' + re.escape(expected) + '$',
+                             plat + ' app.py must declare TK_MAIN_THREAD_ONLY (mirrored API)')
+
+    def test_tk_constraint_helper(self):
+        import types
+        import unittest.mock as mock
+        from whisper_key.utils import tk_requires_main_thread
+        fake_app = types.ModuleType('whisper_key.platform.app')
+        fake_app.TK_MAIN_THREAD_ONLY = True
+        with mock.patch.dict(sys.modules, {'whisper_key.platform.app': fake_app}):
+            self.assertTrue(tk_requires_main_thread())
+        fake_app.TK_MAIN_THREAD_ONLY = False
+        with mock.patch.dict(sys.modules, {'whisper_key.platform.app': fake_app}):
+            self.assertFalse(tk_requires_main_thread())
+
+    def test_macos_setup_lets_tk_create_the_shared_application(self):
+        # Whoever calls sharedApplication() first decides NSApp's class. Tk must
+        # win, or its drawing code sends TKApplication-only selectors to a plain
+        # NSApplication and the process aborts.
+        import types
+        import unittest.mock as mock
+        order = []
+
+        class FakeNSObject:
+            @classmethod
+            def alloc(cls):
+                return cls()
+
+            def init(self):
+                return self
+
+        class FakeNSApp:
+            def setActivationPolicy_(self, policy):
+                pass
+
+            def setDelegate_(self, delegate):
+                pass
+
+        class FakeNSApplication:
+            @staticmethod
+            def sharedApplication():
+                order.append('sharedApplication')
+                return FakeNSApp()
+
+        class FakeTk:
+            def __init__(self):
+                order.append('tk.Tk')
+
+            def withdraw(self):
+                pass
+
+        appkit = types.ModuleType('AppKit')
+        appkit.NSApplication = FakeNSApplication
+        appkit.NSApplicationActivationPolicyAccessory = 1
+        appkit.NSEventMaskAny = 0
+        appkit.NSDefaultRunLoopMode = 'default'
+        foundation = types.ModuleType('Foundation')
+        foundation.NSDate = foundation.NSOperationQueue = foundation.NSThread = mock.Mock()
+        foundation.NSObject = FakeNSObject
+        tkinter = types.ModuleType('tkinter')
+        tkinter.Tk = FakeTk
+        with mock.patch.dict(sys.modules, {'AppKit': appkit, 'Foundation': foundation, 'tkinter': tkinter}):
+            mac_app = self._load('platform/macos/app.py', 'wk_mac_app')
+            mac_app.setup()
+        self.assertEqual(order, ['tk.Tk', 'sharedApplication'])
+        self.assertIsNotNone(mac_app._tk_preload_root, 'the hidden root must stay alive')
+
+    def test_overlay_stands_down_where_tk_is_main_thread_only(self):
+        import unittest.mock as mock
+        from whisper_key.level_overlay import LevelOverlay
+        overlay = LevelOverlay(level_provider=lambda: 0.0)
+        overlay._available = True  # as if tkinter were importable
+        with mock.patch('whisper_key.utils.tk_requires_main_thread', return_value=True), \
+             mock.patch('whisper_key.level_overlay.threading.Thread') as thread:
+            overlay.start()
+        thread.assert_not_called()
+        self.assertFalse(overlay._available, 'every later overlay call must be a no-op')
+        overlay.show_recording()
+        overlay.flash_failure('still safe')
+
+    def test_welcome_runs_inline_on_macos_and_threaded_elsewhere(self):
+        import threading
+        import unittest.mock as mock
+        from whisper_key import first_run
+        seen = []
+        done = threading.Event()
+
+        def fake_run(on_close, hotkey_label, shutdown_event):
+            seen.append(threading.current_thread() is threading.main_thread())
+            done.set()
+        event = threading.Event()
+        with mock.patch.object(first_run, '_run_welcome', fake_run):
+            with mock.patch('whisper_key.utils.tk_requires_main_thread', return_value=True):
+                first_run.show_welcome_window(shutdown_event=event)
+            with mock.patch('whisper_key.utils.tk_requires_main_thread', return_value=False):
+                done.clear()
+                first_run.show_welcome_window(shutdown_event=event)
+                self.assertTrue(done.wait(2))
+        self.assertEqual(seen, [True, False])
+
+    # A just-enough tkinter for the welcome window. mainloop() models the real
+    # one: it only returns once quit() has been called, because with the macOS
+    # preload root alive, destroy() alone never ends it.
+    def _run_welcome_with_fake_tk(self, drive, shutdown_event=None):
+        import types
+        import unittest.mock as mock
+        calls = []
+
+        class Widget:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __getattr__(self, name):
+                return lambda *args, **kwargs: None
+
+        class BooleanVar(Widget):
+            def get(self):
+                return False
+
+        class Tk(Widget):
+            def __init__(self):
+                self.after_callbacks = []
+                self.close_handler = None
+
+            def protocol(self, name, handler):
+                self.close_handler = handler
+
+            def after(self, ms, callback):
+                self.after_callbacks.append(callback)
+
+            def quit(self):
+                calls.append('quit')
+
+            def destroy(self):
+                calls.append('destroy')
+
+            def mainloop(self):
+                calls.append('mainloop')
+                drive(self)
+                if 'quit' not in calls:
+                    raise AssertionError('mainloop() would never return: quit() was not called')
+                calls.append('mainloop returned')
+
+        tkinter = types.ModuleType('tkinter')
+        tkinter.Tk = Tk
+        tkinter.Frame = tkinter.Label = tkinter.Button = tkinter.Checkbutton = Widget
+        tkinter.BooleanVar = BooleanVar
+        on_close = mock.Mock()
+        from whisper_key import first_run
+        with mock.patch.dict(sys.modules, {'tkinter': tkinter}), \
+             mock.patch.object(first_run, 'mark_first_run_complete') as mark:
+            first_run._run_welcome(on_close, 'CTRL+WIN', shutdown_event)
+        return calls, on_close, mark
+
+    def test_welcome_dismissal_quits_before_destroying(self):
+        calls, on_close, mark = self._run_welcome_with_fake_tk(lambda root: root.close_handler())
+        self.assertEqual(calls, ['mainloop', 'quit', 'mainloop returned', 'destroy'])
+        mark.assert_called_once()
+        on_close.assert_called_once()
+
+    def test_welcome_closes_on_shutdown_without_counting_as_dismissed(self):
+        import threading
+        event = threading.Event()
+
+        def drive(root):
+            event.set()  # SIGTERM arrives while the window is open
+            for callback in list(root.after_callbacks):
+                callback()
+        calls, on_close, mark = self._run_welcome_with_fake_tk(drive, shutdown_event=event)
+        self.assertIn('quit', calls)
+        self.assertEqual(calls[-1], 'destroy')
+        mark.assert_not_called()
+        on_close.assert_not_called()
+
+    def test_main_hands_the_welcome_window_the_shutdown_event(self):
+        source = (ROOT / 'src' / 'whisper_key' / 'main.py').read_text(encoding='utf-8')
+        call = source[source.index('show_welcome_window('):]
+        call = call[:call.index(')\n')]
+        self.assertIn('shutdown_event=shutdown_event', call)

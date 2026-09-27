@@ -11,10 +11,13 @@
 # Most --flags short-circuit and exit before the heavy app is even constructed,
 # so utility commands like --version, --doctor, --settings stay fast.
 
-from .utils import setup_portaudio_path
+from .utils import setup_nvidia_dll_path, setup_portaudio_path
 # PortAudio DLLs ship inside the package on Windows; this prepends the right
 # directory to PATH *before* sounddevice tries to load them.
 setup_portaudio_path()
+# Same idea for the CUDA libraries GPU onboarding pip-installs: ctranslate2
+# can't find them on its own, and a CUDA model without them hangs (issue #15).
+setup_nvidia_dll_path()
 
 import argparse
 import logging
@@ -610,8 +613,11 @@ def main():
             from .first_run import is_first_run, show_welcome_window
             from .utils import beautify_hotkey
             if is_first_run():
+                # Blocks here on macOS, where Tk must own the main thread for
+                # as long as the window is open (issue #14).
                 show_welcome_window(
                     hotkey_label=beautify_hotkey(hotkey_config.get('recording_hotkey', 'ctrl+win')),
+                    shutdown_event=shutdown_event,
                 )
         except Exception as e:
             logger.debug(f"First-run welcome skipped: {e}")

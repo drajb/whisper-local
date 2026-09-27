@@ -12,8 +12,43 @@ class AppDelegate(NSObject):
 
 _delegate = None
 
+# ── Tk coexistence (issue #14) ────────────────────────────────────────────────
+# Tk on macOS draws through Cocoa, so a Tk window can only be created on the
+# main thread, which here belongs to the NSApplication run loop. Windows that
+# normally run on a worker thread (level overlay, first-run welcome) read this
+# through utils.tk_requires_main_thread() and adapt.
+TK_MAIN_THREAD_ONLY = True
+
+# Held for the process lifetime; see _preload_tk().
+_tk_preload_root = None
+
+
+# Let Tk create the shared NSApplication before pyobjc does.
+#
+# Whoever calls sharedApplication() first decides its class. Tk 9 installs its
+# own subclass (TKApplication) and its drawing code then calls selectors only
+# that subclass has, e.g. -macOSVersion from GetRGBA. If pyobjc gets there
+# first, NSApp is a plain NSApplication and the first later tk.Tk() dies on an
+# unrecognised selector. That's an NSException, not a Python exception, so no
+# try/except can catch it: the process aborts with exit 134.
+#
+# The hidden root must stay alive: destroying the last Tk root tears down Tk's
+# app-level state, and the next tk.Tk() would start the fight again. Best effort
+# only. Without Tk (or without a display) we fall back to a plain NSApplication
+# and the Tk windows skip themselves.
+def _preload_tk():
+    global _tk_preload_root
+    try:
+        import tkinter as tk
+        _tk_preload_root = tk.Tk()
+        _tk_preload_root.withdraw()
+    except Exception:
+        _tk_preload_root = None
+
+
 def setup():
     global _delegate
+    _preload_tk()  # must run before sharedApplication() below
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
     _delegate = AppDelegate.alloc().init()

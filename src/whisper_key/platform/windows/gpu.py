@@ -361,11 +361,60 @@ def _check_runtime_compatibility(reqs: dict, runtime_version: str) -> bool:
     return True
 
 
+# ── CUDA runtime libraries (issue #15) ───────────────────────────────────────
+# What ctranslate2's CUDA build (4.x: CUDA 12 + cuDNN 9) loads by bare name on
+# the FIRST INFERENCE, not at import or model load. So a CUDA model loads fine
+# without them, and the first transcription then hangs instead of raising.
+# cudnn64_9 is only a front; it pulls in the ops/cnn sub-libraries lazily, so
+# those are probed by name too rather than assumed to come along.
+_CUDA_RUNTIME_LIBRARIES = (
+    'cublas64_12.dll',
+    'cublasLt64_12.dll',
+    'cudnn64_9.dll',
+    'cudnn_ops64_9.dll',
+    'cudnn_cnn64_9.dll',
+)
+
+
+# Names from _CUDA_RUNTIME_LIBRARIES that won't load. winmode=0 is the plain
+# LoadLibrary search order (PATH included), i.e. exactly how ctranslate2 will
+# look. ctypes' default mode skips PATH and would wrongly flag a CUDA toolkit
+# that is installed system-wide.
+def _missing_cuda_libraries() -> list[str]:
+    missing = []
+    for name in _CUDA_RUNTIME_LIBRARIES:
+        try:
+            ctypes.WinDLL(name, winmode=0)
+        except OSError:
+            missing.append(name)
+    return missing
+
+
+# CUDA libraries the configured GPU backend needs but can't load; empty when
+# the setup is complete. Only the NVIDIA build of ctranslate2 is checked, since
+# ROCm builds also run as device 'cuda' but need none of these.
+# macOS mirror: platform/macos/gpu.py (always empty).
+def missing_gpu_libraries() -> list[str]:
+    if _detect_ct2_variant() != 'cuda':
+        return []
+    return _missing_cuda_libraries()
+
+
+# Whether GPU transcription would actually work. get_supported_compute_types()
+# alone only proves the driver answers: it passes on a machine with no cuBLAS or
+# cuDNN anywhere, and onboarding then switched the app to CUDA without
+# installing them (issue #15). For NVIDIA the runtime libraries must load too.
 def _test_ct2_gpu(ct2_variant: str) -> bool:
     try:
         import ctranslate2
-        device = 'cuda'
-        supported = ctranslate2.get_supported_compute_types(device)
-        return len(supported) > 0
+        if not ctranslate2.get_supported_compute_types('cuda'):
+            return False
     except Exception:
         return False
+
+    if ct2_variant == 'cuda':
+        missing = _missing_cuda_libraries()
+        if missing:
+            _status(f"   ✗ Missing CUDA libraries: {', '.join(missing)}", 'warning')
+            return False
+    return True

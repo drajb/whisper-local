@@ -4,6 +4,7 @@
 # wheel vs frozen .exe), hotkey string parsing/prettifying, version lookup, and
 # the OptionalComponent shim used for gracefully-absent dependencies.
 import os
+import site
 import subprocess
 import sys
 import importlib.resources
@@ -60,6 +61,17 @@ def open_file(path):
         import logging
         logging.getLogger(__name__).warning(f"open_file('{path}'): unsupported platform")
 
+# True where a Tk window may only be created on the main thread (macOS; see
+# platform/macos/app.py). Windows that normally run on a worker thread check
+# this and either run inline on the main thread or stand down (issue #14).
+# Unsupported platforms (Linux CI) have no platform backend and no constraint.
+def tk_requires_main_thread() -> bool:
+    try:
+        from .platform import app
+    except ImportError:
+        return False
+    return app.TK_MAIN_THREAD_ONLY
+
 def resolve_asset_path(relative_path: str) -> str:
     if not relative_path or os.path.isabs(relative_path):
         return relative_path
@@ -77,6 +89,52 @@ def setup_portaudio_path():
     assets_dir = Path(resolve_asset_path('platform/windows/assets'))
     if assets_dir.exists():
         os.environ['PATH'] = str(assets_dir) + os.pathsep + os.environ.get('PATH', '')
+
+# Every site-packages\nvidia\<lib>\bin folder the pip NVIDIA wheels created
+# (cuBLAS, cuDNN, CUDA runtime). `roots` defaults to this interpreter's
+# site-packages; tests pass their own.
+def find_nvidia_dll_dirs(roots=None) -> list:
+    if roots is None:
+        # Runs at import on every launch, so it must never raise: embedded and
+        # old-virtualenv interpreters can lack either of these functions.
+        roots = []
+        for getter in ('getsitepackages', 'getusersitepackages'):
+            try:
+                found_roots = getattr(site, getter)()
+            except AttributeError:
+                continue
+            roots.extend([found_roots] if isinstance(found_roots, str) else found_roots)
+    found = []
+    for root in roots:
+        for bin_dir in sorted(Path(root).glob('nvidia/*/bin')):
+            if bin_dir.is_dir() and str(bin_dir) not in found:
+                found.append(str(bin_dir))
+    return found
+
+# Make pip-installed CUDA libraries loadable (issue #15). GPU onboarding installs
+# nvidia-cublas-cu12 / nvidia-cudnn-cu12, whose DLLs land in folders no search
+# path covers: ctranslate2 registers only its own package folder, then loads
+# cuBLAS/cuDNN by bare name on the first inference, so the install was invisible
+# and the first transcription hung. Two registrations, because there are two
+# loaders: add_dll_directory serves Python-side loads (ctypes, extension
+# imports); PATH serves the plain LoadLibrary calls ctranslate2 and cuDNN make.
+# Called next to setup_portaudio_path(), before ctranslate2 is imported.
+def setup_nvidia_dll_path():
+    if sys.platform != 'win32':
+        return
+    dll_dirs = find_nvidia_dll_dirs()
+    if not dll_dirs:
+        return
+    for dll_dir in dll_dirs:
+        try:
+            os.add_dll_directory(dll_dir)
+        except OSError:
+            pass  # PATH below still covers the native loader
+    current = os.environ.get('PATH', '')
+    on_path = set(current.split(os.pathsep))
+    new_dirs = [d for d in dll_dirs if d not in on_path]
+    if new_dirs:
+        os.environ['PATH'] = os.pathsep.join(new_dirs + [current])
 
 # Find pythonw.exe for the interpreter we're running under. It normally sits
 # beside python.exe, but not always: a venv created with --without-pip, and some

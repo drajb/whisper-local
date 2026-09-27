@@ -236,6 +236,8 @@ def _section_model() -> int:
             except ImportError:
                 Check("pywhispercpp installed").fail("missing — run: pip install 'whisper-local[whispercpp]'").print()
                 failures += 1
+        elif whisper_cfg.get('device') == 'cuda':
+            failures += _check_gpu_libraries()
         streaming_cfg = cfg.get_streaming_config()
         registry = ModelRegistry(
             whisper_models_config=whisper_cfg.get('models', {}),
@@ -260,6 +262,26 @@ def _section_model() -> int:
 
     print()
     return failures
+
+
+# A CUDA config can pass every other check and still hang on the first
+# transcription because cuBLAS/cuDNN won't load; that's what issue #15 looked
+# like from here. Returns the number of failures (0 or 1).
+def _check_gpu_libraries() -> int:
+    try:
+        from .hardware_detection import missing_gpu_libraries
+        missing = missing_gpu_libraries()
+    except Exception as e:
+        Check("CUDA libraries").warn(f"could not check: {e}").print()
+        return 0
+    if missing:
+        Check("CUDA libraries").fail(
+            f"missing {', '.join(missing)} — launch Whisper Local and "
+            "choose 'Re-run GPU setup' to install them"
+        ).print()
+        return 1
+    Check("CUDA libraries").ok().print()
+    return 0
 
 
 def _section_hotkeys() -> int:

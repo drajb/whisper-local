@@ -6,6 +6,10 @@
 # require the main thread).
 import msvcrt
 
+# Tk windows each run their own root on a worker thread, which Windows allows.
+# macOS mirror is True: Tk there must live on the main thread.
+TK_MAIN_THREAD_ONLY = False
+
 
 def setup():
     pass

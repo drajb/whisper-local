@@ -34,23 +34,37 @@ def mark_first_run_complete():
         logger.debug(f"Could not write first-run flag: {e}")
 
 
-# Spawns the welcome window on a daemon thread so it doesn't block the main
-# app from starting up. `hotkey_label` is the user's *current* configured
+# How often the window checks whether the app was asked to shut down.
+_SHUTDOWN_POLL_MS = 200
+
+
+# Shows the welcome window. `hotkey_label` is the user's *current* configured
 # recording hotkey, displayed in the tip text so it's accurate.
-def show_welcome_window(on_close=None, hotkey_label: str = "Ctrl+Win"):
+#
+# Normally it runs on a daemon thread so it doesn't hold up startup. Where Tk is
+# main-thread-only (macOS, issue #14) it runs inline instead, and the caller
+# must be on the main thread; it blocks until dismissed. Tk's own loop keeps
+# pumping Cocoa events meanwhile, so the tray and hotkeys stay live. The signal
+# handler only sets `shutdown_event`, which nothing else polls while this
+# blocks, so the window watches it itself; otherwise SIGTERM would be swallowed.
+def show_welcome_window(on_close=None, hotkey_label: str = "Ctrl+Win", shutdown_event=None):
+    from .utils import tk_requires_main_thread
+    if tk_requires_main_thread():
+        _run_welcome(on_close, hotkey_label, shutdown_event)
+        return
     threading.Thread(
         target=_run_welcome,
-        args=(on_close, hotkey_label),
+        args=(on_close, hotkey_label, shutdown_event),
         daemon=True,
         name='welcome-window',
     ).start()
 
 
-# Window body, run on a daemon thread with its own Tk root. Shown exactly once
-# (the caller gates on a marker file); `on_close` fires afterwards so first-run
-# follow-ups — such as the autostart prompt — happen only after the user has
-# actually seen and dismissed this.
-def _run_welcome(on_close, hotkey_label):
+# Window body, with its own Tk root. Shown exactly once (the caller gates on a
+# marker file); `on_close` fires afterwards so first-run follow-ups, such as the
+# autostart prompt, happen only after the user has actually seen and dismissed
+# this. A shutdown request closes the window without counting as a dismissal.
+def _run_welcome(on_close, hotkey_label, shutdown_event=None):
     try:
         import tkinter as tk
     except ImportError:
@@ -129,23 +143,44 @@ def _run_welcome(on_close, hotkey_label):
     btn_frame = tk.Frame(container, bg=BG)
     btn_frame.pack(fill='x', pady=(14, 0))
 
+    dismissed = False
+
+    # Button and window-close both land here. quit() only stops mainloop();
+    # the root is destroyed once mainloop() has returned (see below).
     def _done():
+        nonlocal dismissed
+        dismissed = True
         mark_first_run_complete()
         if autostart_var.get():
             try:
                 autostart.enable()
             except Exception as e:
                 logger.debug(f"Autostart enable from welcome failed: {e}")
-        try:
-            root.destroy()
-        except Exception:
-            pass
-        if on_close:
-            on_close()
+        root.quit()
+
+    def _watch_for_shutdown():
+        if shutdown_event.is_set():
+            root.quit()
+            return
+        root.after(_SHUTDOWN_POLL_MS, _watch_for_shutdown)
 
     tk.Button(btn_frame, text="Got it — let's dictate",
               command=_done, bg=ACCENT, fg='white', relief='flat',
               padx=22, pady=6, font=('Segoe UI', 10, 'bold')).pack(side='right')
 
     root.protocol("WM_DELETE_WINDOW", _done)
+    if shutdown_event is not None:
+        root.after(_SHUTDOWN_POLL_MS, _watch_for_shutdown)
+
+    # Quit first, destroy after. mainloop() runs until no Tk roots are left on
+    # this thread, and on macOS the platform layer keeps a hidden root alive on
+    # the main thread for the whole process (platform/macos/app.py). There,
+    # destroy() alone leaves mainloop() blocked forever after "Got it", hanging
+    # every first launch. quit() ends the loop regardless of other roots.
     root.mainloop()
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    if dismissed and on_close:
+        on_close()

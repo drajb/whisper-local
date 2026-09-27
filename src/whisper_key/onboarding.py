@@ -48,8 +48,16 @@ GPU_SIZES = {
 
 def handle_gpu_failure(error, config_manager):
     import logging
-    logging.getLogger(__name__).error(f"GPU model load failed: {error}")
+    logger = logging.getLogger(__name__)
+    logger.error(f"GPU model load failed: {error}")
     print(f"\n{BOLD_RED}GPU acceleration failed:{RESET} {error}\n")
+
+    # Windowless launch (pythonw / autostart): no keyboard can answer the
+    # prompt, so waiting on it would hang startup. Use CPU for this session,
+    # as choosing "Fall back to CPU" would; the next console launch asks again.
+    if sys.stdin is None:
+        logger.warning("No console for the GPU recovery prompt; using CPU this session")
+        return
 
     choice = prompt_choice(
         "GPU recovery",
