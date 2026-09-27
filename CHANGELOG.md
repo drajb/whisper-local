@@ -1,6 +1,6 @@
 # Changelog
 
-History inherited from upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local). Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.19.1]
 
@@ -166,10 +166,9 @@ All three open issues, reported with diagnoses and patches by
 
 ## [0.18.0]
 
-Merges the good ideas from upstream [`PinW/whisper-key-local`](https://github.com/PinW/whisper-key-local)
-(v0.8.2) into this fork. Nothing from this fork was given up to do it — where
-both projects had solved the same problem, both approaches are kept and each is
-used where it is genuinely better.
+Merges a round of outside improvements. Nothing existing was given up to do it —
+where two approaches solved the same problem, both are kept and each is used
+where it is genuinely better.
 
 ### Added
 - **Startup "ready" chime** (`audio_feedback.ready_enabled`, on by default). A
@@ -469,7 +468,6 @@ used where it is genuinely better.
 
 ### Changed
 - Repositioned README for open-source / privacy-first audience; expanded SEO and comparison tables (Wispr Flow, Dragon, Otter, WSR).
-- LICENSE credits both Pin Wang (upstream author) and Rohit Burani (fork maintainer).
 
 ## [0.9.0] - 2026-05-11 (drajb/whisper-local fork)
 

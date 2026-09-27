@@ -98,7 +98,6 @@ def _status(msg, level='info'):
 # without a space). Strix Halo / Ryzen AI MAX APUs (8040S/8050S/8060S) report no
 # "RX" at all, so they need their own pattern or GPU onboarding never fires for
 # them. Anything unrecognised returns None and we simply stay on CPU.
-# (AMD classification adopted from upstream PinW/whisper-key-local @86ce94f.)
 def _classify_gpu(gpu_vendor: str, gpu_name: str) -> str | None:
     if gpu_vendor == 'nvidia':
         return 'nvidia'

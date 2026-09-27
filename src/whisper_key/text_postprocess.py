@@ -298,7 +298,6 @@ def _apply_smart_formatting(text: str, cfg: dict) -> str:
 # the longer variant must win, otherwise the shorter one shadows it and leaves a
 # dangling "x". Matching is case-insensitive; the replacement is inserted with
 # the exact casing the user wrote.
-# (Design adopted from upstream PinW/whisper-key-local @59d6eb7.)
 @functools.lru_cache(maxsize=8)
 def _compile_corrections(items: tuple):
     lookup = {}

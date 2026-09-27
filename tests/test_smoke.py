@@ -1589,11 +1589,11 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class UpstreamMergeTests(unittest.TestCase):
-    """Features adopted from upstream PinW/whisper-key-local, pinned here so a
+class MergedFeatureTests(unittest.TestCase):
+    """Features merged in 0.18.0, pinned here so a
     future refactor can't quietly drop them."""
 
-    # --- AMD GPU classification (upstream 86ce94f) ---
+    # --- AMD GPU classification ---
     def test_amd_gpu_classification(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location(
@@ -1617,7 +1617,7 @@ class UpstreamMergeTests(unittest.TestCase):
             self.assertEqual(gpu._classify_gpu('amd', name), expected, f"for {name!r}")
         self.assertEqual(gpu._classify_gpu('nvidia', 'GeForce RTX 4090'), 'nvidia')
 
-    # --- Vocabulary corrections (upstream 59d6eb7, adapted) ---
+    # --- Vocabulary corrections ---
     def test_corrections_map_many_variants_to_one_term(self):
         from whisper_key.text_postprocess import postprocess
         cfg = {'corrections': {'CAPEX': ['cap x', 'copics'], 'MySQL': ['my sequel']}}
@@ -1652,7 +1652,7 @@ class UpstreamMergeTests(unittest.TestCase):
                'replacements': [{'from': 'budget', 'to': 'spend'}]}
         self.assertEqual(postprocess('the cap x budget', cfg), 'the CAPEX spend')
 
-    # --- Terminal tab title (upstream 892403b, retitled) ---
+    # --- Terminal tab title ---
     def test_terminal_title_parses_static_and_animated_states(self):
         from whisper_key.terminal_title import TerminalTitle
         t = TerminalTitle({'idle': '', 'recording': [['R', 0.1], ['  ', 0.2]],
@@ -1676,7 +1676,7 @@ class UpstreamMergeTests(unittest.TestCase):
         t.start()
         t.stop()  # must not raise even when disabled
 
-    # --- Startup ready sound (upstream d1d507a) ---
+    # --- Startup ready sound ---
     def test_ready_sound_wired_and_asset_present(self):
         import inspect
         # The asset must ship regardless of whether the audio backend is

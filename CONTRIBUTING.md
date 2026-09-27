@@ -2,7 +2,7 @@
 
 Thank you for wanting to make this better! **All contributions are welcome** — bug reports, fixes, new features, docs, tests, even just sharing how you use it.
 
-This project is maintained by **Rohit Burani** ([@drajb](https://github.com/drajb)) on a best-effort basis. Whisper Local is **provided to anyone who wants it** as a free, open-source MIT-licensed fork of [`whisper-key-local`](https://github.com/PinW/whisper-key-local) by Pin Wang — see [`AUTHORS.md`](AUTHORS.md) for the full credit list.
+This project is maintained by **Rohit Burani** ([@drajb](https://github.com/drajb)) on a best-effort basis. Whisper Local is **provided to anyone who wants it** as a free, open-source MIT-licensed project — see [`AUTHORS.md`](AUTHORS.md) for the full credit list.
 
 ## Ground rules
 
@@ -72,3 +72,7 @@ Use the [Feature request template](https://github.com/drajb/whisper-local/issues
 Thank you again — see you in the PR queue!
 
 — Rohit ([@drajb](https://github.com/drajb))
+
+---
+
+<sub>Originally forked from [PinW/whisper-key-local](https://github.com/PinW/whisper-key-local).</sub>

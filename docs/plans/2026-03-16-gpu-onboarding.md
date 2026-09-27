@@ -77,7 +77,7 @@ When no GPU is detected, set `gpu_class: integrated_cpu` and `gpu: skipped`. Lat
 
 ### Update integration
 
-For AMD users, `pip install --upgrade whisper-key-local` (from auto-update) replaces the ROCm CT2 wheel with the standard CUDA build from PyPI. The `update_checker.py` module reads `onboarding.gpu_class` from config and re-installs the correct CT2 wheel after upgrading.
+For AMD users, `pip install --upgrade whisper-local` (from auto-update) replaces the ROCm CT2 wheel with the standard CUDA build from PyPI. The `update_checker.py` module reads `onboarding.gpu_class` from config and re-installs the correct CT2 wheel after upgrading.
 
 The CT2 wheel URL mapping lives in `onboarding.py` and is imported by `update_checker.py`. Note: `run_update(version)` currently only takes `version` — needs `config_manager` added as a parameter. GPU restore must happen after pip upgrade but before the pyapp restart (`subprocess.Popen`):
 

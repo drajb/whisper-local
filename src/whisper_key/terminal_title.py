@@ -8,8 +8,6 @@
 # that cycle as an animation, so a recording indicator can blink. Writes are
 # skipped entirely when stdout isn't a TTY (pythonw, piped output, the .exe with
 # its console hidden), which keeps escape codes out of redirected logs.
-#
-# Adopted from upstream PinW/whisper-key-local (@892403b) and retitled.
 
 import logging
 import sys

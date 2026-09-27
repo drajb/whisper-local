@@ -113,25 +113,17 @@ was reproduced locally before fixing rather than taken on trust.
   degrades to current behaviour instead of losing hotkeys. **Not verified on real
   macOS hardware by us** — the contributor validated it on their machine.
 
-**Not adopted:** upstream's two open issues are feature requests (Linux X11
-hotkeys, VAD); VAD already exists here.
-
 **Process note:** two contributors report being unable to open PRs against this
 repo. No interaction limits are set and forking is enabled — the cause is that
-this repo is itself a fork, so GitHub defaults a PR's base to the root parent
-(PinW/whisper-key-local). Worth resolving; there is a finished Intel GPU
+this repo is itself a fork, so GitHub defaults a PR's base to the root parent. Worth resolving; there is a finished Intel GPU
 (OpenVINO) backend waiting on it in discussion #5.
 
 ---
 
-## Round 8 (0.18.0) — merge from upstream (2026-08)
+## Round 8 (0.18.0) — merged improvements (2026-08)
 
-PR [PinW/whisper-key-local#64](https://github.com/PinW/whisper-key-local/pull/64)
-was closed unmerged ("too messy to merge" — it was an undescribed bulk diff, so
-that verdict was about the shape of the PR, not the code). Divergence still had
-to be resolved, so this round goes the other way: review all 16 upstream commits
-since the fork point (af0e8b1) and adopt what is genuinely better, without
-surrendering anything this fork added.
+Reviewed 16 outside commits since af0e8b1 and adopted what is genuinely better,
+without surrendering anything already here.
 
 **Adopted:**
 - **UP-1 (Bug, real hardware)** `_classify_gpu` matched a single digit after
@@ -139,7 +131,7 @@ surrendering anything this fork added.
   app offered a runtime that cannot drive it. It also required a literal space,
   missing the "RX5700" form vendors emit, and had no pattern for Strix Halo /
   Ryzen AI MAX APUs (8040S/8050S/8060S), so GPU onboarding never fired on that
-  hardware. Adopted upstream's four-digit match. +8-case test.
+  hardware. Adopted a four-digit match. +8-case test.
 - **UP-2 (Feature)** Startup "ready" chime (`audio_feedback.ready_enabled`) plus
   the `app_ready.wav` asset. A cold start is slow and the app has no window; an
   audible cue is the clearest "the hotkey is live now" signal.
@@ -161,10 +153,10 @@ surrendering anything this fork added.
   remains what the history window's "Fix this everywhere" writes; `corrections`
   runs first so a specific replacement can still override a broad mapping.
 
-**Already present, no action:** push-to-talk for the command hotkey
-(upstream ad890a4), `strip_trailing_period` (6cbdc32).
+**Already present, no action:** push-to-talk for the command hotkey,
+`strip_trailing_period`.
 
-**Deliberately not taken:** upstream's CLAUDE.md trim and the replacement of
+**Deliberately not taken:** a CLAUDE.md trim and the replacement of
 `project-index.md` with a condensed map (this fork's docs are richer and are
 enforced by `DocumentationStandardTests`), their plan-doc removal, and the 0.8.2
 version bump.

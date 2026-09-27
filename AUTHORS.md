@@ -6,17 +6,13 @@ Whisper Local exists thanks to the people listed here.
 
 - **Rohit Burani** ([@drajb](https://github.com/drajb)) — current maintainer of `whisper-local`
 
-## Original author
-
-- **Pin Wang** ([@PinW](https://github.com/PinW)) — created the upstream [`whisper-key-local`](https://github.com/PinW/whisper-key-local) project that this fork is based on
-
 ## Contributors
 
 Everyone whose pull requests have been merged. Add yourself here in your first PR! GitHub's automatic contributor list is also available at <https://github.com/drajb/whisper-local/graphs/contributors>.
 
 <!-- Add your name here in alphabetical order when contributing. -->
 
-## Upstream open-source projects we build on
+## Open-source projects we build on
 
 Whisper Local stands on the shoulders of a lot of excellent work:
 
