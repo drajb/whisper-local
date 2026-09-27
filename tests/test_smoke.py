@@ -8,6 +8,76 @@ LF = chr(10)  # newline, for readable assertions about layout
 sys.path.insert(0, str(ROOT / "src"))
 
 
+# ── Faking the platform layer ─────────────────────────────────────────────────
+# whisper_key.platform imports the OS backend (pyobjc / pywin32 / PIL), which
+# the lean CI env doesn't install, so a test that needs a module importing it
+# swaps in a stand-in for the WHOLE package. Faking only a submodule is not
+# enough: `from .platform import app` still runs the real package __init__.
+# The real platform modules are never evicted either. On macOS, re-running
+# platform/macos/app.py redefines an Objective-C class, which pyobjc refuses.
+_PLATFORM_SUBMODULES = ('hotkeys', 'keyboard', 'foreground', 'app', 'console',
+                        'permissions', 'icons', 'paths', 'instance_lock', 'gpu')
+
+
+# A module whose every attribute is a MagicMock unless set explicitly.
+def _stand_in_module(name):
+    import types
+    import unittest.mock as mock
+
+    class StandIn(types.ModuleType):
+        __path__ = []
+
+        def __getattr__(self, attr):
+            if attr.startswith('__'):
+                raise AttributeError(attr)
+            value = mock.MagicMock(name=f'{self.__name__}.{attr}')
+            setattr(self, attr, value)
+            return value
+    return StandIn(name)
+
+
+# sys.modules entries for a stand-in platform package. `app_attrs` are set on
+# the fake platform.app (TK_MAIN_THREAD_ONLY defaults to False).
+def fake_platform_modules(**app_attrs) -> dict:
+    modules = {f'whisper_key.platform.{m}': _stand_in_module(f'whisper_key.platform.{m}')
+               for m in _PLATFORM_SUBMODULES}
+    package = _stand_in_module('whisper_key.platform')
+    package.IS_MACOS = package.IS_WINDOWS = False
+    package.PLATFORM = 'unsupported'
+    for m in _PLATFORM_SUBMODULES:
+        setattr(package, m, modules[f'whisper_key.platform.{m}'])
+    app = modules['whisper_key.platform.app']
+    app.TK_MAIN_THREAD_ONLY = False
+    for key, value in app_attrs.items():
+        setattr(app, key, value)
+    modules['whisper_key.platform'] = package
+    return modules
+
+
+# For the rest of `test`: patch sys.modules with `fakes` and drop the app's own
+# modules so they re-import against them. Everything (including the attributes
+# the re-imports bind on the whisper_key package) is restored afterwards, so
+# nothing faked leaks into later tests.
+def reimport_under(test, fakes: dict):
+    import unittest.mock as mock
+    import whisper_key
+    saved_attrs = dict(vars(whisper_key))
+    patcher = mock.patch.dict(sys.modules, fakes)
+    patcher.start()
+
+    def restore():
+        patcher.stop()
+        for key in [k for k in vars(whisper_key) if k not in saved_attrs]:
+            delattr(whisper_key, key)
+        for key, value in saved_attrs.items():
+            setattr(whisper_key, key, value)
+    test.addCleanup(restore)
+    for name in [n for n in sys.modules
+                 if n.startswith('whisper_key.') and n not in fakes
+                 and not n.startswith('whisper_key.platform') and n != 'whisper_key.utils']:
+        sys.modules.pop(name)
+
+
 class HotkeyParsingTests(unittest.TestCase):
     def test_parse_hotkey_splits_on_plus(self):
         from whisper_key.utils import parse_hotkey
@@ -2366,6 +2436,8 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         # model loads, then the first dictation hangs; the engine must refuse up
         # front so main's GPU-failure path can offer setup or CPU.
         self._preload_numpy()
+        import contextlib
+        import io
         import types
         import unittest.mock as mock
         fake_fw = types.ModuleType('faster_whisper')
@@ -2375,13 +2447,17 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
                 'whisper_key.hardware_detection': self._fake_hardware_detection(['cudnn_ops64_9.dll'])}):
             sys.modules.pop('whisper_key.whisper_engine', None)
             from whisper_key.whisper_engine import WhisperEngine
-            with self.assertRaises(RuntimeError) as ctx:
+            # The engine prints emoji progress lines; main() switches stdout to
+            # UTF-8 first, but a cp1252 test console (Windows CI) would choke.
+            with self.assertRaises(RuntimeError) as ctx, contextlib.redirect_stdout(io.StringIO()):
                 WhisperEngine(model_key='base', device='cuda', compute_type='float16')
             fake_fw.WhisperModel.assert_not_called()
         self.assertIn('cudnn_ops64_9.dll', str(ctx.exception))
 
     def test_cpu_engine_skips_the_gpu_check(self):
         self._preload_numpy()
+        import contextlib
+        import io
         import types
         import unittest.mock as mock
         fake_fw = types.ModuleType('faster_whisper')
@@ -2391,7 +2467,8 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
                 'whisper_key.hardware_detection': self._fake_hardware_detection(['cublas64_12.dll'])}):
             sys.modules.pop('whisper_key.whisper_engine', None)
             from whisper_key.whisper_engine import WhisperEngine
-            WhisperEngine(model_key='base', device='cpu', compute_type='int8')
+            with contextlib.redirect_stdout(io.StringIO()):  # emoji vs a cp1252 console
+                WhisperEngine(model_key='base', device='cpu', compute_type='int8')
             fake_fw.WhisperModel.assert_called_once()
 
     def test_gpu_recovery_prompt_is_skipped_without_a_console(self):
@@ -2401,17 +2478,13 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         import io
         import contextlib
         import unittest.mock as mock
-        fake_app = types.ModuleType('whisper_key.platform.app')
-        fake_app.getch = lambda: self.fail('must not wait for a keypress')
-        with mock.patch.dict(sys.modules, {'whisper_key.platform.app': fake_app}):
-            for name in ('whisper_key.onboarding', 'whisper_key.terminal_ui'):
-                sys.modules.pop(name, None)
-            from whisper_key import onboarding
-            with mock.patch.object(onboarding.sys, 'stdin', None), \
-                 mock.patch.object(onboarding, 'prompt_choice') as prompt, \
-                 contextlib.redirect_stdout(io.StringIO()):
-                onboarding.handle_gpu_failure(RuntimeError('CUDA libraries not found'), mock.Mock())
-            prompt.assert_not_called()
+        reimport_under(self, fake_platform_modules(getch=lambda: self.fail('must not wait for a keypress')))
+        from whisper_key import onboarding
+        with mock.patch.object(onboarding.sys, 'stdin', None), \
+             mock.patch.object(onboarding, 'prompt_choice') as prompt, \
+             contextlib.redirect_stdout(io.StringIO()):
+            onboarding.handle_gpu_failure(RuntimeError('CUDA libraries not found'), mock.Mock())
+        prompt.assert_not_called()
 
     def test_doctor_flags_missing_cuda_libraries(self):
         import io
@@ -2437,16 +2510,11 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
                              plat + ' app.py must declare TK_MAIN_THREAD_ONLY (mirrored API)')
 
     def test_tk_constraint_helper(self):
-        import types
         import unittest.mock as mock
         from whisper_key.utils import tk_requires_main_thread
-        fake_app = types.ModuleType('whisper_key.platform.app')
-        fake_app.TK_MAIN_THREAD_ONLY = True
-        with mock.patch.dict(sys.modules, {'whisper_key.platform.app': fake_app}):
-            self.assertTrue(tk_requires_main_thread())
-        fake_app.TK_MAIN_THREAD_ONLY = False
-        with mock.patch.dict(sys.modules, {'whisper_key.platform.app': fake_app}):
-            self.assertFalse(tk_requires_main_thread())
+        for constraint in (True, False):
+            with mock.patch.dict(sys.modules, fake_platform_modules(TK_MAIN_THREAD_ONLY=constraint)):
+                self.assertIs(tk_requires_main_thread(), constraint)
 
     def test_macos_setup_lets_tk_create_the_shared_application(self):
         # Whoever calls sharedApplication() first decides NSApp's class. Tk must
@@ -2891,28 +2959,11 @@ class WisprStyleFeatureTests(unittest.TestCase):
             import numpy  # noqa: F401  (must predate the sys.modules snapshot)
         except ImportError:
             self.skipTest('numpy not installed')
-
-        class Fake(types.ModuleType):
-            __path__ = []
-
-            def __getattr__(self, name):
-                if name.startswith('__'):
-                    raise AttributeError(name)
-                value = mock.MagicMock(name=f'{self.__name__}.{name}')
-                setattr(self, name, value)
-                return value
-        fakes = {name: Fake(name) for name in (
-            'PIL', 'PIL.Image', 'PIL.ImageDraw', 'pystray', 'sounddevice', 'soxr',
-            'faster_whisper', 'playsound3',
-            *('whisper_key.platform.' + m for m in ('hotkeys', 'keyboard', 'foreground', 'app',
-                                                  'console', 'permissions', 'icons', 'paths',
-                                                  'instance_lock', 'gpu')))}
-        patcher = mock.patch.dict(sys.modules, fakes)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        for name in [n for n in sys.modules if n.startswith('whisper_key.')
-                     and n not in fakes and n not in ('whisper_key.utils',)]:
-            sys.modules.pop(name)
+        fakes = fake_platform_modules()
+        for name in ('PIL', 'PIL.Image', 'PIL.ImageDraw', 'pystray', 'sounddevice', 'soxr',
+                     'faster_whisper', 'playsound3'):
+            fakes[name] = _stand_in_module(name)
+        reimport_under(self, fakes)
         from whisper_key.hotkey_listener import HotkeyListener
         from whisper_key.state_manager import StateManager
         return HotkeyListener, StateManager
@@ -3068,6 +3119,7 @@ class ReleaseReviewFixTests(unittest.TestCase):
                          "I'm sure Rohit Burani and I'll go")
 
     def test_settings_save_keeps_custom_styles_and_corrections(self):
+        reimport_under(self, fake_platform_modules())  # config_manager imports the platform layer
         from whisper_key.config_manager import _compute_overrides
         defaults = {'postprocess': {'styles': {}, 'corrections': {}, 'style': ''}}
         user = {'postprocess': {'styles': {'shouty': {'capitalize_first': True}},
