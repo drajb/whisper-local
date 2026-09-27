@@ -162,8 +162,9 @@ def show_dictionary() -> int:
 # Opens the small "add a hotword" dialog (tray item / CLI). Singleton-guarded:
 # re-invoking raises the existing window instead of stacking another Tk root and
 # thread. `on_added` lets the caller refresh live state (e.g. the running engine's
-# hotword list) once a word is actually saved.
-def show_add_word_dialog(on_added=None):
+# hotword list) once a word is actually saved. blocking=True runs the dialog on
+# the calling thread, for platforms where Tk must own the main thread (macOS).
+def show_add_word_dialog(on_added=None, blocking: bool = False):
     global _dialog_root
     with _dialog_lock:
         try:
@@ -274,4 +275,7 @@ def show_add_word_dialog(on_added=None):
             with _dialog_lock:
                 _dialog_root = None
 
+    if blocking:
+        run()
+        return
     threading.Thread(target=run, daemon=True, name='add-word-dialog').start()

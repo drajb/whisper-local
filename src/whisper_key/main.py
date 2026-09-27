@@ -347,6 +347,10 @@ def main():
     parser.add_argument('--list-dictionary', action='store_true', help='Show all words in your hotwords dictionary')
     parser.add_argument('--settings', action='store_true', help='Open the settings window')
     parser.add_argument('--history', action='store_true', help='Browse transcript history')
+    # Internal: how window_launcher opens a Tk window in its own process where Tk
+    # must own the main thread (macOS). Not meant to be typed by users.
+    parser.add_argument('--window', choices=('cheat-sheet', 'add-word', 'fallback', 'history'),
+                        help=argparse.SUPPRESS)
     parser.add_argument('--enable-autostart', action='store_true', help='Launch Whisper Local automatically at login')
     parser.add_argument('--disable-autostart', action='store_true', help='Stop launching at login')
     parser.add_argument('--selftest', action='store_true', help='Run automated self-test (mic, model, transcription, clipboard)')
@@ -433,6 +437,10 @@ def main():
         from .dictionary import show_dictionary
         sys.exit(show_dictionary())
 
+    if args.window:
+        from .window_launcher import run_window
+        sys.exit(run_window(args.window, sys.stdin))
+
     if args.settings:
         from .settings_ui import run_settings_window
         run_settings_window()
@@ -440,10 +448,12 @@ def main():
 
     if args.history:
         from .history_window import show_history
+        from .utils import tk_requires_main_thread
         # Wait for the window to close. It runs on a daemon thread, so exiting
         # here would kill it on the spot — the window opened and vanished
-        # immediately when launched from the tray (issue #10).
-        window = show_history()
+        # immediately when launched from the tray (issue #10). On macOS Tk must
+        # own the main thread, so there it runs right here instead.
+        window = show_history(blocking=tk_requires_main_thread())
         if window:
             window.join()
         sys.exit(0)
@@ -468,8 +478,9 @@ def main():
 
     if args.cheat_sheet:
         from .cheat_sheet import show_cheat_sheet
-        # Same daemon-thread trap as --history above.
-        window = show_cheat_sheet()
+        from .utils import tk_requires_main_thread
+        # Same daemon-thread trap (and macOS main-thread rule) as --history above.
+        window = show_cheat_sheet(blocking=tk_requires_main_thread())
         if window:
             window.join()
         sys.exit(0)

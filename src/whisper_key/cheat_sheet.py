@@ -18,8 +18,9 @@ _current_root = None
 
 # Public entry point. Pass config_manager and transforms_manager from the running
 # app when calling from the tray; the CLI path (--cheat-sheet) constructs a fresh
-# ConfigManager since no app instance is running.
-def show_cheat_sheet(config_manager=None, transforms_manager=None):
+# ConfigManager since no app instance is running. blocking=True runs the window
+# on the calling thread, for platforms where Tk must own the main thread (macOS).
+def show_cheat_sheet(config_manager=None, transforms_manager=None, blocking: bool = False):
     global _current_root
     with _thread_lock:
         try:
@@ -29,6 +30,10 @@ def show_cheat_sheet(config_manager=None, transforms_manager=None):
                 return
         except Exception:
             pass
+
+    if blocking:
+        _run(config_manager, transforms_manager)
+        return None
 
     # Returned so a CLI caller can wait on it; see issue #10.
     thread = threading.Thread(

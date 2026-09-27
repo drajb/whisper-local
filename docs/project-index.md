@@ -33,6 +33,7 @@ Open-source project maintained as `drajb/whisper-local` by Rohit Burani. Interna
 | **Settings GUI** | `settings_ui.py` | `--settings` Tkinter settings editor with search | tkinter |
 | **Transcript History** | `history_window.py` + `transcript_log.py` | `--history` searchable journal of past transcriptions | tkinter, json |
 | **Hotkey Cheat Sheet** | `cheat_sheet.py` | Window listing currently configured hotkeys | tkinter |
+| **Window Launcher** | `window_launcher.py` | Opens Tk windows in a child process where Tk needs the main thread (macOS) | subprocess, json |
 | **First-Run Welcome** | `first_run.py` | One-time onboarding window on first launch | tkinter |
 | **Terminal Title** | `terminal_title.py` | Animated terminal tab title reflecting app state | - |
 | **Level Overlay** | `level_overlay.py` | Floating level meter + streaming text pill | tkinter |

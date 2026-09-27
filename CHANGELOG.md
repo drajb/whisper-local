@@ -2,6 +2,18 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **macOS: the fallback window, hotkey cheat sheet and add-word dialog could
+  never open** (follow-through on
+  [#14](https://github.com/drajb/whisper-local/issues/14)). Each built its Tk
+  window on a background thread, which macOS doesn't allow. They now open in a
+  small child process where Tk has the main thread to itself. A dictated
+  transcript is handed over through a pipe, never on the command line. The
+  `--history` and `--cheat-sheet` commands run their window on the main thread.
+  Nothing changes on Windows.
+
 ## [0.19.1]
 
 Both issues reported by users on 0.19.0.

@@ -54,6 +54,13 @@ class FallbackWindow:
              allow_clipboard: bool = True):
         if not self._available or not transcript:
             return
+        reason = reason or "No text field was focused — your dictation is safe here."
+        # Where Tk can't run on this worker thread (macOS), the window gets its
+        # own process instead. The transcript travels over a pipe, never argv.
+        from .window_launcher import open_in_child_process
+        if open_in_child_process('fallback', {'transcript': transcript, 'reason': reason,
+                                              'allow_clipboard': allow_clipboard}):
+            return
         with self._lock:
             if self._open:
                 if allow_clipboard:
@@ -68,9 +75,7 @@ class FallbackWindow:
             self._open = True
         thread = threading.Thread(
             target=self._run_window,
-            args=(transcript,
-                  reason or "No text field was focused — your dictation is safe here.",
-                  allow_clipboard),
+            args=(transcript, reason, allow_clipboard),
             daemon=True,
             name='fallback-window',
         )

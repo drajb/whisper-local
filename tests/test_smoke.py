@@ -2612,3 +2612,75 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         call = source[source.index('show_welcome_window('):]
         call = call[:call.index(')\n')]
         self.assertIn('shutdown_event=shutdown_event', call)
+
+    # --- #14 follow-through: every other Tk window on macOS ---
+    def test_windows_stay_in_process_where_tk_threads_are_fine(self):
+        import unittest.mock as mock
+        from whisper_key import window_launcher
+        with mock.patch('whisper_key.utils.tk_requires_main_thread', return_value=False), \
+             mock.patch.object(window_launcher.subprocess, 'Popen') as popen:
+            self.assertFalse(window_launcher.open_in_child_process('cheat-sheet'))
+        popen.assert_not_called()
+
+    def test_macos_windows_open_in_a_child_with_the_payload_on_stdin(self):
+        import json
+        import unittest.mock as mock
+        from whisper_key import window_launcher
+        child = mock.Mock()
+        with mock.patch('whisper_key.utils.tk_requires_main_thread', return_value=True), \
+             mock.patch.object(window_launcher.subprocess, 'Popen', return_value=child) as popen, \
+             mock.patch.object(window_launcher.threading, 'Thread'):
+            handled = window_launcher.open_in_child_process('fallback', {'transcript': 'secret words'})
+        self.assertTrue(handled)
+        command = popen.call_args.args[0]
+        self.assertEqual(command[-2:], ['--window', 'fallback'])
+        self.assertNotIn('secret words', ' '.join(command), 'transcripts must not go in argv')
+        sent = json.loads(child.stdin.write.call_args.args[0].decode('utf-8'))
+        self.assertEqual(sent['transcript'], 'secret words')
+        child.stdin.close.assert_called_once()
+
+    def test_failed_spawn_never_falls_back_to_in_process_tk(self):
+        import unittest.mock as mock
+        from whisper_key import window_launcher
+        with mock.patch('whisper_key.utils.tk_requires_main_thread', return_value=True), \
+             mock.patch.object(window_launcher.subprocess, 'Popen', side_effect=OSError('nope')):
+            self.assertTrue(window_launcher.open_in_child_process('add-word'))
+
+    def test_child_runs_each_window_blocking_on_its_main_thread(self):
+        import io
+        import unittest.mock as mock
+        from whisper_key import window_launcher
+        for name, target in (('cheat-sheet', 'whisper_key.cheat_sheet.show_cheat_sheet'),
+                             ('add-word', 'whisper_key.dictionary.show_add_word_dialog'),
+                             ('history', 'whisper_key.history_window.show_history')):
+            with mock.patch(target) as show:
+                self.assertEqual(window_launcher.run_window(name, io.StringIO('')), 0)
+            self.assertTrue(show.call_args.kwargs.get('blocking'), name + ' must run blocking')
+        with mock.patch('whisper_key.fallback_window.FallbackWindow._run_window') as run:
+            code = window_launcher.run_window(
+                'fallback', io.StringIO('{"transcript": "hi", "reason": "r", "allow_clipboard": false}'))
+        self.assertEqual(code, 0)
+        run.assert_called_once_with('hi', 'r', False)
+        self.assertEqual(window_launcher.run_window('fallback', io.StringIO('not json')), 1)
+
+    def test_fallback_window_hands_off_instead_of_threading(self):
+        import unittest.mock as mock
+        from whisper_key.fallback_window import FallbackWindow
+        window = FallbackWindow()
+        window._available = True
+        with mock.patch('whisper_key.window_launcher.open_in_child_process', return_value=True) as launch, \
+             mock.patch('whisper_key.fallback_window.threading.Thread') as thread:
+            window.show('dictated text', allow_clipboard=False)
+        thread.assert_not_called()
+        payload = launch.call_args.args[1]
+        self.assertEqual(payload['transcript'], 'dictated text')
+        self.assertFalse(payload['allow_clipboard'])
+        self.assertTrue(payload['reason'], 'the default reason must travel with it')
+
+    def test_window_flag_choices_match_the_launcher(self):
+        from whisper_key.window_launcher import WINDOW_NAMES
+        source = (ROOT / 'src' / 'whisper_key' / 'main.py').read_text(encoding='utf-8')
+        line = source[source.index("'--window'"):]
+        line = line[:line.index('\n')]
+        for name in WINDOW_NAMES:
+            self.assertIn(repr(name), line)
