@@ -1,8 +1,12 @@
-# Whisper Key Local - Roadmap
+# Whisper Local - Roadmap
 @completed.md
 
 ## Next
--
+- As a *user* I want **"learn from my fix"** so that when I correct a dictation in place, one hotkey diffs my edit against what was typed and offers to save it as a correction or dictionary word (Wispr Flow's dictionary auto-learn, done offline)
+- As a *user* I want **restricted language auto-detect** (`whisper.languages: [en, hi]`) so switching between the languages I speak never lands on one I don't
+- As a *developer* I want **spoken casing commands** ("camel case foo bar" → `fooBar`, "snake case …") per app rule, for dictating identifiers
+- As a *user* I want **Command Mode without a selection**: "search Perplexity for …" opens a search, "write …" drafts via local Ollama
+- As a *user* I want the **level overlay on macOS**, running in its own process so Tk gets its main thread
 
 ## Bugs
 - **CUDA version forward-compatibility** - onboarding GPU detection doesn't recognize newer CUDA versions (e.g. CUDA 13.x), and CTranslate2 requires `cublas64_12.dll` which isn't present when only CUDA 13+ is installed. Workaround: manually copy CUDA 12 cuBLAS/cuDNN libs into CUDA 13 bin directory. Need to detect newer CUDA versions and guide users to install the required CUDA 12 compatibility libs

@@ -16,10 +16,18 @@
 #   ensure_punctuation:   true | false  - "
 #   strip_trailing_period:true | false  - "
 #   inline_formatting:    true | false  - "
+#   lowercase:            true | false  - "
+#   list_formatting:      true | false  - "
+#   style:       formal | casual | very_casual | verbatim (or one of your own
+#                postprocess.styles) - sets the formatting toggles above in one go
 #
-# The four formatting overrides let you adapt the writing style per app — e.g.
-# verbatim/no-capitalization in a code editor, full sentences in email. Only the
-# keys you set override your global postprocess config; others are inherited.
+# A style picks how your writing looks in that app: full sentences in email,
+# relaxed in chat, exactly-as-spoken in a code editor. Toggles set on the same
+# rule win over its style. Only what a rule sets overrides your global
+# postprocess config; everything else is inherited.
+#
+# Browser apps (Gmail, Slack in Chrome, ...) can only be matched by window
+# title, e.g. match: ["Gmail"].
 #
 # Rules are matched top-down; first match wins. Edit this file freely;
 # it hot-reloads on the next transcription.
@@ -28,10 +36,13 @@ rules:
   # Chat apps: send the message immediately, casual tone bias
   - match: ["slack.exe", "discord.exe", "telegram.exe", "whatsapp.exe", "Slack", "Discord"]
     auto_send: true
+    style: casual
+    list_formatting: false   # a new line would send the message early
     initial_prompt: "Casual chat message. Conversational tone."
 
   # Email clients: professional bias, no auto-send
   - match: ["outlook.exe", "thunderbird.exe", "Mail"]
+    style: formal
     initial_prompt: "Professional email body. Polite, clear sentences."
 
   # Code editors: never auto-send, never paste — copy only so the user
@@ -40,8 +51,7 @@ rules:
   - match: ["code.exe", "cursor.exe", "windsurf.exe", "rider64.exe", "pycharm64.exe", "idea64.exe"]
     auto_paste: false
     initial_prompt: "Programming context. Identifiers, snake_case, camelCase, file paths, regex."
-    capitalize_first: false
-    ensure_punctuation: false
+    style: verbatim
 
   # Password managers: never deliver dictation into a password field
   - match: ["1password.exe", "1password-7.exe", "lastpass.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe"]
@@ -50,3 +60,4 @@ rules:
   # Terminals: copy only — pasting into a terminal can run commands
   - match: ["windowsterminal.exe", "wt.exe", "conhost.exe", "powershell.exe", "cmd.exe", "alacritty.exe", "wezterm-gui.exe"]
     auto_paste: false
+    style: verbatim

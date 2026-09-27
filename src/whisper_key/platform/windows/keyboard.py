@@ -159,3 +159,13 @@ def type_text(text: str):
 
     if inputs:
         _send(inputs)
+
+
+# Shift, Ctrl, Alt, left/right Win. Checked before synthesizing a paste from a
+# hotkey, because a modifier the user is still physically holding would merge
+# into it (Alt+Shift held + Ctrl+V = Ctrl+Alt+Shift+V).
+_MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C)
+
+
+def modifiers_held() -> bool:
+    return any(user32.GetAsyncKeyState(vk) & 0x8000 for vk in _MODIFIER_VKS)

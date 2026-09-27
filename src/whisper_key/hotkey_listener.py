@@ -1,11 +1,13 @@
 # hotkey_listener.py
 # Registers global hotkeys and maps them to StateManager actions: record (toggle
 # or push-to-talk), stop, auto-send, cancel, command mode, AI rephrase, pause-all,
-# and per-transform hotkeys. Handles PTT press/release and re-registration when
-# transforms or hotkey config change. Backed by the platform.hotkeys layer.
+# paste-last and per-transform hotkeys. Handles PTT press/release (with optional
+# double-tap-to-lock) and re-registration when transforms or hotkey config
+# change. Backed by the platform.hotkeys layer.
 
 import logging
 
+from .hotkey_gestures import TapLatch
 from .platform import hotkeys
 from .state_manager import StateManager
 
@@ -14,7 +16,8 @@ class HotkeyListener:
                  auto_send_key: str = None, cancel_combination: str = None,
                  command_hotkey: str = None, rephrase_hotkey: str = None,
                  pause_hotkey: str = None, transforms_manager=None,
-                 recording_mode: str = "push_to_talk"):
+                 recording_mode: str = "push_to_talk", paste_last_hotkey: str = None,
+                 double_tap_to_lock: bool = False, double_tap_window_ms: int = 400):
         self.state_manager = state_manager
         self.recording_hotkey = recording_hotkey
         self.stop_key = stop_key
@@ -25,6 +28,17 @@ class HotkeyListener:
         self.pause_hotkey = pause_hotkey
         self.transforms_manager = transforms_manager
         self.recording_mode = recording_mode
+        self.paste_last_hotkey = paste_last_hotkey
+        # Hands-free double-tap only applies to push-to-talk; toggle mode is
+        # already hands-free.
+        self.tap_latch = None
+        if double_tap_to_lock and recording_mode == "push_to_talk":
+            self.tap_latch = TapLatch(
+                start=self._standard_hotkey_pressed,
+                stop=self._push_to_talk_released,
+                window_ms=double_tap_window_ms,
+                is_recording=lambda: self.state_manager.audio_recorder.get_recording_status(),
+            )
         self.keys_armed = True
         self.is_listening = False
         self.is_paused = False
@@ -41,7 +55,14 @@ class HotkeyListener:
     def _setup_hotkeys(self):
         hotkey_configs = []
 
-        if self.recording_mode == "push_to_talk":
+        if self.recording_mode == "push_to_talk" and self.tap_latch:
+            hotkey_configs.append({
+                'combination': self.recording_hotkey,
+                'callback': self.tap_latch.press,
+                'release_callback': self.tap_latch.release,
+                'name': 'standard (push-to-talk, double-tap to lock)'
+            })
+        elif self.recording_mode == "push_to_talk":
             hotkey_configs.append({
                 'combination': self.recording_hotkey,
                 'callback': self._standard_hotkey_pressed,
@@ -99,6 +120,16 @@ class HotkeyListener:
                 'callback': self._rephrase_hotkey_pressed,
                 'release_callback': self._rephrase_hotkey_released,
                 'name': 'rephrase (push-to-talk)'
+            })
+
+        # Fires on release, not press: pasting while the chord is still held
+        # would merge its modifiers into the synthetic Ctrl+V.
+        if self.paste_last_hotkey:
+            hotkey_configs.append({
+                'combination': self.paste_last_hotkey,
+                'callback': lambda: None,
+                'release_callback': self._paste_last_hotkey_released,
+                'name': 'paste last'
             })
 
         if self.pause_hotkey:
@@ -215,6 +246,14 @@ class HotkeyListener:
         self.keys_armed = True
         self.state_manager.stop_recording()
 
+    # Own thread: the paste waits for modifiers to be let go, and the hotkey
+    # listener thread must never block on that.
+    def _paste_last_hotkey_released(self):
+        import threading
+        self.logger.info(f"Paste-last hotkey: {self.paste_last_hotkey}")
+        threading.Thread(target=self.state_manager.paste_last_transcription,
+                         daemon=True, name='paste-last').start()
+
     def _pause_hotkey_pressed(self):
         self.is_paused = not self.is_paused
         # Deliberately no stop()/register()/start() here — see _gated(). The
@@ -257,7 +296,7 @@ class HotkeyListener:
             self.logger.error(f"Error stopping hotkey listener: {e}")
 
     def change_hotkey_config(self, setting: str, value):
-        valid_settings = ['recording_hotkey', 'stop_key', 'auto_send_key', 'cancel_combination', 'command_hotkey', 'rephrase_hotkey', 'pause_hotkey', 'recording_mode']
+        valid_settings = ['recording_hotkey', 'stop_key', 'auto_send_key', 'cancel_combination', 'command_hotkey', 'rephrase_hotkey', 'pause_hotkey', 'paste_last_hotkey', 'recording_mode']
 
         if setting not in valid_settings:
             raise ValueError(f"Invalid setting '{setting}'. Valid options: {valid_settings}")

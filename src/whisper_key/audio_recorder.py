@@ -51,7 +51,8 @@ class AudioRecorder:
                  streaming_manager=None,
                  on_streaming_result: Callable[[str, bool], None] = None,
                  device=None,
-                 noise_suppression_config: Optional[dict] = None):
+                 noise_suppression_config: Optional[dict] = None,
+                 whisper_mode_config: Optional[dict] = None):
 
         self.sample_rate = self.WHISPER_SAMPLE_RATE
         self.channels = channels
@@ -62,6 +63,7 @@ class AudioRecorder:
         self.recording_start_time = None
         self.logger = logging.getLogger(__name__)
         self._noise_suppression_config = noise_suppression_config or {}
+        self._whisper_mode_config = whisper_mode_config or {}
 
         self.vad_manager = vad_manager
         self.on_vad_event = on_vad_event
@@ -308,6 +310,12 @@ class AudioRecorder:
             from .noise_suppression import apply_noise_reduction
             strength = float(self._noise_suppression_config.get('strength', 0.75))
             audio_array = apply_noise_reduction(audio_array, self.WHISPER_SAMPLE_RATE, strength)
+
+        # After noise reduction, so the boost lifts the speech, not the noise.
+        if self._whisper_mode_config.get('enabled'):
+            from .audio_gain import boost_quiet_audio
+            audio_array = boost_quiet_audio(
+                audio_array, float(self._whisper_mode_config.get('max_gain', 8.0)))
 
         audio_array = self._trim_long_pauses(audio_array)
         audio_array = self._trim_trailing_silence(audio_array)

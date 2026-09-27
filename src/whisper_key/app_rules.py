@@ -24,13 +24,31 @@ DEFAULTS_FILE = "app_rules.defaults.yaml"
 # auto-capitalization or trailing periods; email: full sentences). Only keys
 # present in the rule override the global postprocess config.
 FORMATTING_KEYS = ('capitalize_first', 'ensure_punctuation',
-                   'strip_trailing_period', 'inline_formatting')
+                   'strip_trailing_period', 'inline_formatting',
+                   'lowercase', 'list_formatting')
 
 
-def formatting_overrides(rule) -> dict:
+# A rule's formatting overrides: its `style` expanded into toggles first, then
+# any toggle the rule sets explicitly, which wins over the style.
+def formatting_overrides(rule, postprocess_cfg: dict = None) -> dict:
     if not rule:
         return {}
-    return {k: bool(rule[k]) for k in FORMATTING_KEYS if k in rule}
+    from .styles import resolve_style
+    overrides = resolve_style(rule.get('style'), postprocess_cfg)
+    overrides.update({k: bool(rule[k]) for k in FORMATTING_KEYS if k in rule})
+    return overrides
+
+
+# The postprocess config for one delivery. Precedence, lowest to highest:
+# global toggles < global `style` < the app rule's style < the rule's explicit
+# toggles. The style is resolved here, once, so postprocess() can't re-apply
+# the global one over a rule's choice.
+def effective_postprocess_config(postprocess_cfg: dict, rule=None) -> dict:
+    from .styles import resolve_style
+    cfg = dict(postprocess_cfg or {})
+    cfg.update(resolve_style(cfg.pop('style', None), cfg))
+    cfg.update(formatting_overrides(rule, cfg))
+    return cfg
 
 
 class AppRules:
