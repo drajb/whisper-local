@@ -71,7 +71,9 @@ Yes! `whisper-local --serve` starts a **local OpenAI-compatible HTTP server** on
 Windows 10/11 hides tray icons by default. Click the `^` arrow on the right of the taskbar and **drag** the Whisper Local icon out into the visible tray area to pin it.
 
 ### How do I autostart on login?
-It's built in (since v0.11.0). Tick **Start on login** in the tray menu, check the box on the first-run welcome window, or run `whisper-local --enable-autostart` (`--disable-autostart` to undo). It launches windowless — no console window at boot. On Windows this uses an `HKCU\…\Run` entry; on macOS a LaunchAgent.
+It's built in (since v0.11.0). Tick **Start on login** in the tray menu, check the box on the first-run welcome window, or run `whisper-local --enable-autostart` (`--disable-autostart` to undo). It launches windowless — no console window at boot. On Windows this uses an `HKCU\…\Run` entry.
+
+On macOS it's a LaunchAgent that starts the app through a small helper, `~/Library/Application Support/Whisper Local/Whisper Local.app`. At the first login after you turn it on, macOS asks you to allow "Whisper Local" under Accessibility, and later under Microphone. The app starts as soon as you allow it, or after a minute either way. Building the helper needs Apple's Command Line Tools (`xcode-select --install`). Without them, the LaunchAgent runs Python directly and macOS asks about Python instead.
 
 ### Can I use voice punctuation in another language (e.g. Polish)?
 Yes. The built-in "comma / period / open paren" triggers are English, but you can

@@ -6,6 +6,7 @@
 import logging
 import os
 import signal
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,15 @@ def request_accessibility_permission():
 
 
 def handle_missing_permission(config_manager) -> bool:
+    # Under launchd (Start on login) nobody can answer the terminal prompt
+    # below. Reading a key from launchd's /dev/null stdin raised termios.error
+    # and ended the app at every login (issue #19). Ask macOS instead: its
+    # dialog adds the app to the Accessibility list, and a restart after the
+    # grant picks it up.
+    if sys.stdin is None or not sys.stdin.isatty():
+        request_accessibility_permission()
+        return True
+
     from ...terminal_ui import prompt_choice
 
     app_name = _get_terminal_app_name()
