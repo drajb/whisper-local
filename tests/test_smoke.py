@@ -2635,14 +2635,18 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
             def protocol(self, name, handler):
                 self.close_handler = handler
 
-            def after(self, ms, callback):
-                self.after_callbacks.append(callback)
+            def after(self, ms, callback, *args):
+                self.after_callbacks.append(lambda: callback(*args))
 
             def quit(self):
                 calls.append('quit')
 
+            # Real destroy() deletes the Tcl commands behind the window's
+            # callbacks, which drops their references to it.
             def destroy(self):
                 calls.append('destroy')
+                self.after_callbacks.clear()
+                self.close_handler = None
 
             def mainloop(self):
                 calls.append('mainloop')
@@ -2759,6 +2763,29 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         line = line[:line.index('\n')]
         for name in WINDOW_NAMES:
             self.assertIn(repr(name), line)
+
+    # --- #18: SIGTRAP after the welcome window closed on macOS ---
+    def test_welcome_window_is_freed_when_it_closes(self):
+        # Tcl aborts the process if an interpreter is deleted off the thread
+        # that created it. The window's root has to be freed when _run_welcome()
+        # returns, on this thread. The garbage collector runs on whichever thread
+        # happens to trigger it, so it must not be the one to free it.
+        import gc
+        import threading
+        import weakref
+        roots = []
+
+        def dismiss(root):
+            roots.append(weakref.ref(root))
+            root.close_handler()
+        gc_was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            self._run_welcome_with_fake_tk(dismiss, shutdown_event=threading.Event())
+            self.assertIsNone(roots[0](), 'a reference cycle is keeping the closed window alive')
+        finally:
+            if gc_was_enabled:
+                gc.enable()
 
 
 class WisprStyleFeatureTests(unittest.TestCase):

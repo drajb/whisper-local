@@ -11,6 +11,7 @@ Whisper Local exists thanks to the people listed here.
 Everyone whose pull requests have been merged. Add yourself here in your first PR! GitHub's automatic contributor list is also available at <https://github.com/drajb/whisper-local/graphs/contributors>.
 
 <!-- Add your name here in alphabetical order when contributing. -->
+- **Chad DePue** ([@cbd](https://github.com/cbd))
 
 ## Open-source projects we build on
 
