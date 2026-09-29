@@ -154,6 +154,16 @@ def _section_config() -> int:
     commands_yaml = config_dir / "commands.yaml"
     failures += _check_yaml_parses("commands.yaml", commands_yaml, required=False, count_key="commands")
 
+    # What the app will actually match on, shipped commands included.
+    try:
+        from .defaults_merge import load_layered
+        from .voice_commands import DEFAULTS_FILE, USER_FILE_HEADER
+        merged, _ = load_layered(DEFAULTS_FILE, commands_yaml, "commands",
+                                 USER_FILE_HEADER, id_key="trigger")
+        Check("Voice commands in effect").info(f"{len(merged)} total").print()
+    except Exception as e:
+        Check("Voice commands in effect").warn(str(e)).print()
+
     try:
         from .config_manager import ConfigManager
         cfg = ConfigManager(quiet=True)
@@ -184,7 +194,10 @@ def _check_yaml_parses(label: str, path: Path, required: bool, count_key: str = 
             data = YAML().load(f)
         detail = ""
         if count_key and isinstance(data, dict) and isinstance(data.get(count_key), list):
-            detail = f"{len(data[count_key])} entries"
+            # These files hold only the user's own entries now; the shipped ones
+            # are layered underneath from the package, so the effective total is
+            # reported separately.
+            detail = f"{len(data[count_key])} of your own"
         Check(label).ok(detail).print()
         return 0
     except Exception as e:
@@ -333,14 +346,18 @@ def _section_postprocess_and_rules() -> int:
         from pathlib import Path
         from .utils import get_user_app_data_path
         rules_path = Path(get_user_app_data_path()) / "app_rules.yaml"
-        if rules_path.exists():
-            from ruamel.yaml import YAML
-            with open(rules_path, encoding="utf-8") as f:
-                data = YAML().load(f) or {}
-            count = len((data.get('rules') or []))
-            Check("Per-app rules").ok(f"{count} rules in app_rules.yaml").print()
-        else:
-            Check("Per-app rules").info("not yet created").print()
+        existed = rules_path.exists()          # AppRules() creates it, so ask first
+        # Report what actually applies: the shipped rules plus the user's, not
+        # just the contents of their (overrides-only) file.
+        from .app_rules import AppRules
+        rules = AppRules().rules
+        own = sum(1 for r in rules if not r.get('id'))
+        detail = f"{len(rules)} rules in effect"
+        if own:
+            detail += f" ({own} of your own)"
+        if not existed:
+            detail += ", app_rules.yaml just created"
+        Check("Per-app rules").ok(detail).print()
     except Exception as e:
         Check("Per-app rules").warn(str(e)).print()
 

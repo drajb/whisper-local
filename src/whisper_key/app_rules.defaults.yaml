@@ -29,8 +29,20 @@
 # Browser apps (Gmail, Slack in Chrome, ...) can only be matched by window
 # title, e.g. match: ["Gmail"].
 #
-# Rules are matched top-down; first match wins. Edit this file freely;
-# it hot-reloads on the next transcription.
+# Rules are matched top-down; first match wins. Your own rules are matched
+# before all of these, so they always win.
+#
+# THIS FILE SHIPS WITH THE APP AND IS NOT THE ONE YOU EDIT. Your rules live in
+# app_rules.yaml in your config folder, and these are layered underneath, so
+# improvements here reach you on every update. In that file you can:
+#   - add rules of your own (no id needed)
+#   - change one of these, by naming its id and only the keys you want different:
+#       - id: chat-apps
+#         auto_send: false
+#   - turn one off entirely:
+#       - id: terminals
+#         disabled: true
+# It hot-reloads on the next transcription.
 
 rules:
   # Order matters: first match wins, and window-title matching is by
@@ -38,30 +50,35 @@ rules:
   # editor showing "slack_bot.py" would match the chat rule (and auto-send).
 
   # Password managers: never deliver dictation into a password field
-  - match: ["1password.exe", "1password-7.exe", "lastpass.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe"]
+  - id: password-managers
+    match: ["1password.exe", "1password-7.exe", "lastpass.exe", "bitwarden.exe", "keepass.exe", "keepassxc.exe"]
     suppress: true
 
   # Terminals: copy only — pasting into a terminal can run commands
-  - match: ["windowsterminal.exe", "wt.exe", "conhost.exe", "powershell.exe", "cmd.exe", "alacritty.exe", "wezterm-gui.exe"]
+  - id: terminals
+    match: ["windowsterminal.exe", "wt.exe", "conhost.exe", "powershell.exe", "cmd.exe", "alacritty.exe", "wezterm-gui.exe"]
     auto_paste: false
     style: verbatim
 
   # Code editors: never auto-send, never paste — copy only so the user
   # decides where it lands; identifier/path bias. Keep it verbatim: no forced
   # capitalization or trailing period (code isn't prose).
-  - match: ["code.exe", "cursor.exe", "windsurf.exe", "rider64.exe", "pycharm64.exe", "idea64.exe"]
+  - id: code-editors
+    match: ["code.exe", "cursor.exe", "windsurf.exe", "rider64.exe", "pycharm64.exe", "idea64.exe"]
     auto_paste: false
     initial_prompt: "Programming context. Identifiers, snake_case, camelCase, file paths, regex."
     style: verbatim
 
   # Chat apps: send the message immediately, casual tone bias
-  - match: ["slack.exe", "discord.exe", "telegram.exe", "whatsapp.exe", "Slack", "Discord"]
+  - id: chat-apps
+    match: ["slack.exe", "discord.exe", "telegram.exe", "whatsapp.exe", "Slack", "Discord"]
     auto_send: true
     style: casual
     list_formatting: false   # a new line would send the message early
     initial_prompt: "Casual chat message. Conversational tone."
 
   # Email clients: professional bias, no auto-send
-  - match: ["outlook.exe", "thunderbird.exe", "Mail"]
+  - id: email-clients
+    match: ["outlook.exe", "thunderbird.exe", "Mail"]
     style: formal
     initial_prompt: "Professional email body. Polite, clear sentences."

@@ -9,15 +9,45 @@ import logging
 import os
 import re
 import shlex
-import shutil
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 import pyperclip
-from ruamel.yaml import YAML
 
-from .utils import resolve_asset_path, get_user_app_data_path
+from .defaults_merge import load_layered
+from .utils import get_user_app_data_path
 from .platform import keyboard
+
+DEFAULTS_FILE = "commands.defaults.yaml"
+
+USER_FILE_HEADER = """\
+# Whisper Local — your voice commands
+#
+# The commands that ship with the app are applied underneath this file, so new
+# ones reach you on every update. Here you only write what's yours:
+#
+#   commands:
+#     # one of your own
+#     - trigger: "open downloads"
+#       run: "explorer %USERPROFILE%\\\\Downloads"
+#
+#     # change a shipped one, naming its trigger and the keys you want different
+#     - trigger: "undo"
+#       hotkey: "ctrl+shift+z"
+#
+#     # swap a shipped one's action: null clears the action it came with
+#     - trigger: "maximize"
+#       hotkey: null
+#       type: "maximised"
+#
+#     # turn a shipped one off
+#     - trigger: "show desktop"
+#       disabled: true
+#
+# Full documentation: https://github.com/drajb/whisper-local/blob/master/docs/voice-commands.md
+
+"""
 
 RISKY_PATTERNS = re.compile(
     r'\b(rm\s+-r|del\s+/[sq]|format\s+\w:|shutdown|reg\s+delete|sudo|takeown|del\s+/f)\b'
@@ -38,34 +68,31 @@ class VoiceCommandManager:
             self.logger.info("Voice commands disabled by configuration")
             return
 
-        defaults_path = resolve_asset_path("commands.defaults.yaml")
-        user_path = os.path.join(get_user_app_data_path(), "commands.yaml")
-
-        if not os.path.exists(user_path):
-            shutil.copy2(defaults_path, user_path)
-            self.logger.info(f"Created user commands file from defaults: {user_path}")
-
-        yaml = YAML()
-        try:
-            with open(user_path, 'r', encoding='utf-8') as f:
-                data = yaml.load(f)
-        except Exception as e:
-            self.logger.error(f"Failed to parse {user_path}: {e}")
-            raise
-
-        self.commands_path = user_path
+        self.commands_path = os.path.join(get_user_app_data_path(), "commands.yaml")
+        self.commands = self._load_commands()
         self._commands_mtime = self._read_mtime()
-        raw_commands = data.get('commands', []) if data else []
-        self.commands = self._validate_commands(raw_commands)
-        self.commands.sort(key=lambda cmd: len(cmd.get('trigger', '')), reverse=True)
         self.logger.info(f"Loaded {len(self.commands)} voice commands")
+
+    # The shipped commands are layered under the user's file, so new ones added
+    # in an update reach everybody. Shared by startup and the hot reload.
+    def _load_commands(self) -> list:
+        merged, _ = load_layered(
+            DEFAULTS_FILE, Path(self.commands_path), "commands",
+            USER_FILE_HEADER, id_key="trigger")
+        commands = self._validate_commands(merged)
+        commands.sort(key=lambda cmd: len(cmd.get('trigger', '')), reverse=True)
+        return commands
 
     def _validate_commands(self, raw_commands: list) -> list:
         valid = []
         for i, cmd in enumerate(raw_commands):
             trigger = cmd.get('trigger', '')
             has_match = bool(trigger or cmd.get('match_regex'))
-            action_count = sum(1 for key in ('run', 'hotkey', 'type', 'rephrase') if key in cmd)
+            # A null action means "not this one": it's how a user override in
+            # commands.yaml clears the action a shipped command came with
+            # before naming a different one.
+            action_count = sum(1 for key in ('run', 'hotkey', 'type', 'rephrase')
+                               if cmd.get(key) is not None)
 
             if not has_match:
                 self.logger.warning(f"Command {i}: missing trigger and match_regex, skipping")
@@ -151,13 +178,7 @@ class VoiceCommandManager:
 
         self.logger.info(f"Detected change to {self.commands_path}, reloading commands")
         try:
-            yaml = YAML()
-            with open(self.commands_path, 'r', encoding='utf-8') as f:
-                data = yaml.load(f)
-            raw = data.get('commands', []) if data else []
-            new_commands = self._validate_commands(raw)
-            new_commands.sort(key=lambda cmd: len(cmd.get('trigger', '')), reverse=True)
-            self.commands = new_commands
+            self.commands = self._load_commands()
             self._commands_mtime = current_mtime
             self.logger.info(f"Reloaded {len(self.commands)} voice commands")
             print(f"   🔄 Reloaded {len(self.commands)} voice commands from commands.yaml")
@@ -173,7 +194,10 @@ class VoiceCommandManager:
                 self._execute_action(step, trigger + " · then", use_auto_enter=False)
 
     def _execute_action(self, command: dict, trigger: str, use_auto_enter: bool = False):
-        if 'run' in command:
+        # Tested by value, not key presence, to match _validate_commands: a
+        # user override that clears an action writes `hotkey: null`, and the
+        # key is still there.
+        if command.get('run') is not None:
             # If the command pulls in clipboard/selection content, that content is
             # untrusted — force a confirmation so the user always sees the final
             # command before it runs, regardless of the risky-pattern heuristic.
@@ -182,13 +206,13 @@ class VoiceCommandManager:
             self._execute_shell(expanded, trigger,
                                  require_confirm=command.get('confirm', None),
                                  force_confirm=had_untrusted)
-        elif 'hotkey' in command:
+        elif command.get('hotkey') is not None:
             self._send_hotkey(command['hotkey'], trigger)
-        elif 'type' in command:
+        elif command.get('type') is not None:
             self._deliver_text(self._expand_template(command['type']), trigger, use_auto_enter)
-        elif 'rephrase' in command:
+        elif command.get('rephrase') is not None:
             self._execute_rephrase(command['rephrase'], trigger)
-        elif 'delay' in command:
+        elif command.get('delay') is not None:
             import time
             try:
                 seconds = float(command['delay'])

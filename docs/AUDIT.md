@@ -1,12 +1,59 @@
 # Whisper Local — Code Audit & Improvement Backlog
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-28
 **Audited versions:** 0.10.0 (Round 1, below) and 0.11.x (Round 2, next section)
 **Method:** Parallel subsystem reviews + manual verification of every finding before fixing.
 
 > This is a living document. Each issue has a stable ID (e.g. `SRV-1`) so commits and PRs can reference it. When you fix one, change its **Status** to `FIXED (<commit>)` rather than deleting it, so history stays readable.
 
 ---
+
+## Round 13 (0.21.0) — the defaults that never updated (2026-09)
+
+Found while checking whether 0.20.0's app-rule reordering actually reached
+anyone. It hadn't. `app_rules.py`, `voice_commands.py`, `transforms.py` and
+`profiles.py` each copied their shipped defaults into the user's config folder
+once, on first launch, and read only that copy afterwards. So every improvement
+to a shipped file landed for new installs and for nobody else.
+
+Measured on the maintainer's own machine, seeded 7 May:
+
+| file | shipped | theirs |
+|---|---|---|
+| `app_rules.yaml` | 5 | 4 |
+| `commands.yaml` | 21 | 19 |
+| `profiles.yaml` | 5 | 4 |
+| `transforms.yaml` | 6 | 6 |
+
+Eleven releases of drift, including the fix for a code editor showing
+`slack_bot.py` matching the chat rule and auto-sending.
+
+The fix follows the split config already used (`config.defaults.yaml` ships the
+base, `user_settings.yaml` holds overrides): `defaults_merge.py` loads the
+shipped entries from the package on every start and layers the user's file over
+them. Shipped app rules carry a stable `id`; commands, transforms and profiles
+keep the identity they already had (`trigger`, `name`, the mapping key) rather
+than growing a parallel naming scheme.
+
+Decisions worth recording:
+- **User entries are matched before shipped ones.** For app rules first match
+  wins, so anything someone wrote themselves has to outrank the defaults.
+- **A key the user left out is not an override.** Their file predates the key,
+  so it keeps following the shipped entry. This is what lets the new `style:`
+  values reach an old file.
+- **An edited match list re-binds to the shipped rule it overlaps most.**
+  Caught during review: editing a rule's `match` changes its identity, so the
+  migration saw a brand-new rule and the shipped one loaded behind it. Someone
+  who removed Discord from the chat rule would have had Discord auto-sending
+  again, silently. The override now replaces the shipped list.
+- **A null action clears the one a shipped command came with.** The merge keeps
+  the shipped `hotkey` key, so `_execute_action` had to test values rather than
+  key presence; it was dispatching cleared actions.
+- **`--doctor` reports effective totals**, since counting an overrides-only file
+  would have told people they had 0 rules while five were in force.
+
+The original file is backed up to `<name>.yaml.<date>.bak` before the one-time
+rewrite. 19 tests in `LayeredDefaultsTests`; 282 pass.
 
 ## Round 12 (0.20.0) — Wispr Flow–style features (2026-09)
 

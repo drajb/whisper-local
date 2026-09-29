@@ -8,10 +8,42 @@ from typing import Dict, List, Optional
 
 from ruamel.yaml import YAML
 
-from .utils import get_user_app_data_path, resolve_asset_path
+from .defaults_merge import load_layered, shipped_value
+from .utils import get_user_app_data_path
 
 PROFILES_FILE = "profiles.yaml"
 PROFILES_DEFAULTS = "profiles.defaults.yaml"
+
+USER_FILE_HEADER = """\
+# Whisper Local — your profiles
+#
+# The profiles that ship with the app are applied underneath this file, so they
+# keep improving with each update. Here you only write what's yours:
+#
+#   profiles:
+#     # one of your own
+#     meetings:
+#       description: Long-form notes
+#       overrides:
+#         whisper:
+#           model: small
+#
+#     # change a shipped one, naming it and only what you want different.
+#     # `overrides` is taken whole, so list every section you want that
+#     # profile to set, not just the one you're changing.
+#     code:
+#       overrides:
+#         whisper:
+#           model: medium
+#
+#     # turn a shipped one off
+#     translate:
+#       disabled: true
+#
+# Shipped profiles: dictation, chat, code, notes, translate.
+# `active` below is managed by the tray menu.
+
+"""
 
 
 class ProfileManager:
@@ -23,22 +55,11 @@ class ProfileManager:
 
     def _load(self):
         user_path = Path(get_user_app_data_path()) / PROFILES_FILE
-        if not user_path.exists():
-            defaults = Path(resolve_asset_path(PROFILES_DEFAULTS))
-            if defaults.exists():
-                user_path.write_text(defaults.read_text(encoding="utf-8"), encoding="utf-8")
-
-        if not user_path.exists():
-            return
-
-        try:
-            with open(user_path, encoding="utf-8") as f:
-                data = YAML().load(f) or {}
-        except Exception:
-            return
-
-        self.profiles = data.get("profiles", {}) or {}
-        self.active = data.get("active") or None
+        self.profiles, data = load_layered(
+            PROFILES_DEFAULTS, user_path, "profiles", USER_FILE_HEADER,
+            mapping=True)
+        # A fresh user file holds no `active`, so fall back to the shipped one.
+        self.active = data.get("active") or shipped_value(PROFILES_DEFAULTS, "active")
 
     def list_profiles(self) -> List[str]:
         return list(self.profiles.keys())

@@ -2,6 +2,52 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0]
+
+### Changed
+- **Your shipped rules, commands, transforms and profiles now keep updating.**
+  Each of these four files used to be copied out of the app once, on first
+  launch, and never touched again, so every later improvement reached new
+  installs only. A machine set up in May still had May's rules eleven releases
+  later. The shipped entries now load from the app every time, and your file
+  holds only what's yours.
+
+  Your file is rewritten once, on the first launch after updating, and the
+  original is kept beside it as `<name>.yaml.<date>.bak`. Entries you never
+  edited are dropped, because the app supplies them now. Entries you did edit
+  become an override that records only the keys you changed, so the rest keeps
+  following the shipped version. Anything with no shipped counterpart is yours
+  and is left alone.
+
+  In `app_rules.yaml`, `commands.yaml`, `transforms.yaml` and `profiles.yaml`
+  you can now:
+  ```yaml
+  rules:
+    - match: ["obsidian.exe"]   # your own, matched before any shipped rule
+      style: casual
+    - id: chat-apps             # change a shipped one, only the keys you list
+      auto_send: false
+    - id: terminals             # or turn it off
+      disabled: true
+  ```
+  Shipped app rules are named by `id`; commands by their `trigger`, transforms
+  and profiles by their `name`.
+
+### Fixed
+- **A code editor showing a file called `slack_bot.py` auto-sent your
+  dictation.** Window titles match by substring, so the chat rule caught it.
+  0.20.0 fixed the shipped rule order, but that fix could only reach people
+  installing for the first time. It now reaches everyone.
+- **Existing installs never got the per-app writing styles** added in 0.20.0,
+  the email rule, or the four voice commands added since. All of them arrive
+  with this release.
+- **A voice command override can swap the action it came with.** Setting
+  `hotkey: null` and adding `type:` now works; the dispatcher tested for the
+  key being present rather than having a value, so a cleared action still fired.
+- **`--doctor` reported the size of your overrides file**, which would have read
+  as "0 rules" while five were in force. It now reports what is actually in
+  effect, and how many of those are yours.
+
 ## [0.20.0]
 
 Wispr Flow–style editing, fully offline, plus fixes for both issues reported

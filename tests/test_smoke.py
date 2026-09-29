@@ -537,9 +537,16 @@ class TransformsShapeTests(unittest.TestCase):
             self.assertIn('prompt', t)
 
     def test_transforms_manager_loads(self):
-        from whisper_key.transforms import TransformsManager
-        tm = TransformsManager()
-        names = [t.get('name') for t in tm.list_transforms()]
+        # Against a throwaway config dir, never the developer's own: the
+        # manager writes to it now (it seeds and migrates transforms.yaml),
+        # and a test has no business touching a real install.
+        import tempfile
+        import unittest.mock as mock
+        import whisper_key.transforms as tr
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(tr, 'get_user_app_data_path', return_value=tmp):
+                manager = tr.TransformsManager()
+            names = [t.get('name') for t in manager.list_transforms()]
         self.assertIn('polish', names)
         self.assertIn('prompt-engineer', names)
 
@@ -3236,3 +3243,279 @@ class ReleaseReviewFixTests(unittest.TestCase):
         self.assertEqual(postprocess('first, milk. second, eggs', {'list_formatting': 'yes'}),
                          '1. Milk\n2. Eggs')
         self.assertEqual(postprocess('hello', {'capitalize_first': True}), 'Hello')
+
+
+# ── Layered defaults (0.21.0) ────────────────────────────────────────────────
+# Until 0.21 each of app_rules / commands / transforms / profiles was copied out
+# of the package once, on first launch, and never touched again. Every later
+# improvement to a shipped file reached new installs only: a machine set up in
+# May still had May's rules eleven releases on, including the ordering bug that
+# let a code editor showing "slack_bot.py" match the chat rule and auto-send.
+# The shipped entries now load from the package every time, and the user's file
+# holds only their own entries plus per-id overrides.
+class LayeredDefaultsTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.dir = Path(tempfile.mkdtemp(prefix='wl-layer-'))
+
+    def _read(self, name):
+        from ruamel.yaml import YAML
+        with open(self.dir / name, encoding='utf-8') as f:
+            return YAML().load(f) or {}
+
+    def _write(self, name, text):
+        (self.dir / name).write_text(text, encoding='utf-8')
+
+    # A user file in the pre-0.21 shape: a full copy of the defaults as they
+    # were, chat rules ahead of code editors, and no styles.
+    def _write_old_app_rules(self):
+        self._write('app_rules.yaml', (
+            'rules:\n'
+            '  - match: ["slack.exe", "discord.exe", "telegram.exe", "whatsapp.exe", "Slack", "Discord"]\n'
+            '    auto_send: true\n'
+            '    initial_prompt: "Casual chat message. Conversational tone."\n'
+            '  - match: ["code.exe", "cursor.exe", "windsurf.exe", "rider64.exe", "pycharm64.exe", "idea64.exe"]\n'
+            '    auto_paste: false\n'
+            '    initial_prompt: "Programming context. Identifiers, snake_case, camelCase, file paths, regex."\n'
+            '  - match: ["mytool.exe"]\n'
+            '    suppress: true\n'))
+
+    def _load_rules(self):
+        import unittest.mock as mock
+        import whisper_key.app_rules as ar
+        with mock.patch.object(ar, 'get_user_app_data_path', return_value=str(self.dir)):
+            return ar.AppRules().rules
+
+    def test_shipped_rules_load_with_no_user_file(self):
+        rules = self._load_rules()
+        self.assertEqual([r.get('id') for r in rules],
+                         ['password-managers', 'terminals', 'code-editors',
+                          'chat-apps', 'email-clients'])
+        self.assertEqual(self._read('app_rules.yaml').get('rules'), [],
+                         'a fresh user file must start empty, not as a copy of the defaults')
+
+    def test_every_shipped_rule_has_an_id(self):
+        # An id-less shipped rule could never be overridden or disabled, and a
+        # migration would keep re-adding the user's copy of it as a duplicate.
+        from ruamel.yaml import YAML
+        path = ROOT / 'src' / 'whisper_key' / 'app_rules.defaults.yaml'
+        with open(path, encoding='utf-8') as f:
+            shipped = YAML().load(f)['rules']
+        ids = [r.get('id') for r in shipped]
+        self.assertTrue(all(ids), f'shipped rule without an id: {ids}')
+        self.assertEqual(len(ids), len(set(ids)), f'duplicate shipped ids: {ids}')
+
+    def test_editors_are_matched_before_chat(self):
+        # The slack_bot.py bug: window titles match by substring, so the code
+        # editor rule has to come first.
+        ids = [r.get('id') for r in self._load_rules()]
+        self.assertLess(ids.index('code-editors'), ids.index('chat-apps'))
+
+    def test_old_file_gains_later_shipped_rules_and_order(self):
+        self._write_old_app_rules()
+        rules = self._load_rules()
+        ids = [r.get('id') for r in rules]
+        self.assertIn('email-clients', ids, 'a rule added after the user first launched')
+        self.assertLess(ids.index('code-editors'), ids.index('chat-apps'))
+        editors = next(r for r in rules if r.get('id') == 'code-editors')
+        self.assertEqual(editors.get('style'), 'verbatim',
+                         'a key added to a shipped rule after the copy was made')
+
+    def test_migration_keeps_the_users_own_rule_and_drops_the_copies(self):
+        self._write_old_app_rules()
+        rules = self._load_rules()
+        own = [r for r in rules if not r.get('id')]
+        self.assertEqual([r['match'] for r in own], [['mytool.exe']])
+        self.assertEqual(self._read('app_rules.yaml').get('rules'),
+                         [{'match': ['mytool.exe'], 'suppress': True}],
+                         'unedited copies of shipped rules should not survive migration')
+
+    def test_migration_backs_up_the_original(self):
+        self._write_old_app_rules()
+        before = (self.dir / 'app_rules.yaml').read_text(encoding='utf-8')
+        self._load_rules()
+        backups = list(self.dir.glob('app_rules.yaml.*.bak'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_text(encoding='utf-8'), before)
+
+    def test_migration_runs_once(self):
+        self._write_old_app_rules()
+        first = self._load_rules()
+        second = self._load_rules()
+        self.assertEqual([r.get('id') for r in first], [r.get('id') for r in second])
+        self.assertEqual(len(list(self.dir.glob('*.bak'))), 1)
+
+    def test_an_edited_shipped_rule_becomes_an_override(self):
+        # Only the edited key is kept, so every other key keeps following the
+        # shipped rule as it changes.
+        self._write('app_rules.yaml', (
+            'rules:\n'
+            '  - match: ["outlook.exe", "thunderbird.exe", "Mail"]\n'
+            '    style: casual\n'
+            '    initial_prompt: "Professional email body. Polite, clear sentences."\n'))
+        rules = self._load_rules()
+        self.assertEqual(self._read('app_rules.yaml')['rules'],
+                         [{'id': 'email-clients', 'style': 'casual'}])
+        email = next(r for r in rules if r.get('id') == 'email-clients')
+        self.assertEqual(email['style'], 'casual')
+        self.assertEqual(email['match'], ['outlook.exe', 'thunderbird.exe', 'Mail'])
+
+    def test_user_rules_are_matched_before_shipped_rules(self):
+        self._write('app_rules.yaml',
+                    'format: 2\nrules:\n  - match: ["code.exe"]\n    style: casual\n')
+        rules = self._load_rules()
+        self.assertEqual(rules[0]['match'], ['code.exe'])
+        self.assertEqual(rules[0]['style'], 'casual')
+
+    def test_disabled_drops_a_shipped_rule(self):
+        self._write('app_rules.yaml',
+                    'format: 2\nrules:\n  - id: terminals\n    disabled: true\n')
+        rules = self._load_rules()
+        self.assertNotIn('terminals', [r.get('id') for r in rules])
+        self.assertTrue(all('disabled' not in r for r in rules))
+
+    def test_override_inherits_the_keys_it_does_not_set(self):
+        self._write('app_rules.yaml',
+                    'format: 2\nrules:\n  - id: chat-apps\n    auto_send: false\n')
+        chat = next(r for r in self._load_rules() if r.get('id') == 'chat-apps')
+        self.assertIs(chat['auto_send'], False)
+        self.assertEqual(chat['style'], 'casual')
+        self.assertIn('slack.exe', chat['match'])
+
+    def test_a_broken_package_falls_back_to_the_user_file(self):
+        # Losing the shipped file must not throw the user's own rules away.
+        import unittest.mock as mock
+        import whisper_key.defaults_merge as dm
+        self._write('app_rules.yaml', 'format: 2\nrules:\n  - match: ["mytool.exe"]\n')
+        with mock.patch.object(dm, 'resolve_asset_path', return_value=str(self.dir / 'nope.yaml')):
+            merged, _ = dm.load_layered('nope.yaml', self.dir / 'app_rules.yaml',
+                                        'rules', '', id_key='id')
+        self.assertEqual(merged, [{'match': ['mytool.exe']}])
+
+    def test_profiles_active_falls_back_to_the_shipped_default(self):
+        import unittest.mock as mock
+        import whisper_key.profiles as pf
+        with mock.patch.object(pf, 'get_user_app_data_path', return_value=str(self.dir)):
+            manager = pf.ProfileManager(config_manager=mock.MagicMock())
+        self.assertEqual(manager.active, 'dictation')
+        self.assertEqual(sorted(manager.profiles),
+                         ['chat', 'code', 'dictation', 'notes', 'translate'])
+
+    def test_profiles_migration_preserves_the_active_choice(self):
+        import unittest.mock as mock
+        import whisper_key.profiles as pf
+        self._write('profiles.yaml',
+                    'active: code\nprofiles:\n  code:\n    description: Mine\n')
+        with mock.patch.object(pf, 'get_user_app_data_path', return_value=str(self.dir)):
+            manager = pf.ProfileManager(config_manager=mock.MagicMock())
+        self.assertEqual(manager.active, 'code')
+        self.assertEqual(manager.profiles['code']['description'], 'Mine')
+        self.assertIn('overrides', manager.profiles['code'], 'the shipped body should survive')
+
+    def test_transform_override_inherits_the_prompt(self):
+        import unittest.mock as mock
+        try:
+            import whisper_key.transforms as tr
+        except ImportError as e:
+            self.skipTest(f'transforms needs deps the lean env lacks: {e}')
+        self._write('transforms.yaml',
+                    'format: 2\ntransforms:\n  - name: polish\n    hotkey: "win+alt+9"\n'
+                    '  - name: expand\n    disabled: true\n')
+        with mock.patch.object(tr, 'get_user_app_data_path', return_value=str(self.dir)):
+            manager = tr.TransformsManager()
+        names = [t.get('name') for t in manager.transforms]
+        self.assertNotIn('expand', names)
+        polish = next(t for t in manager.transforms if t['name'] == 'polish')
+        self.assertEqual(polish['hotkey'], 'win+alt+9')
+        self.assertTrue(polish.get('prompt'), 'the shipped prompt should still be there')
+
+    def test_a_null_action_lets_an_override_swap_a_commands_action(self):
+        # The merge keeps the shipped `hotkey` key, so clearing it has to mean
+        # "no action here" to both the validator and the dispatcher.
+        import unittest.mock as mock
+        reimport_under(self, fake_platform_modules())
+        try:
+            import whisper_key.voice_commands as vc
+        except ImportError as e:
+            self.skipTest(f'voice_commands needs deps the lean env lacks: {e}')
+        self._write('commands.yaml',
+                    'format: 2\ncommands:\n  - trigger: "maximize"\n'
+                    '    hotkey: null\n    type: "maximised"\n')
+        with mock.patch.object(vc, 'get_user_app_data_path', return_value=str(self.dir)):
+            manager = vc.VoiceCommandManager(enabled=True)
+        swapped = next(c for c in manager.commands if c.get('trigger') == 'maximize')
+        self.assertIsNone(swapped['hotkey'])
+        self.assertEqual(swapped['type'], 'maximised')
+
+    def test_dispatcher_tests_action_values_not_key_presence(self):
+        source = (ROOT / 'src' / 'whisper_key' / 'voice_commands.py').read_text(encoding='utf-8')
+        body = source[source.index('def _execute_action'):]
+        body = body[:body.index('def ', 10)]
+        for key in ('run', 'hotkey', 'type', 'rephrase'):
+            self.assertIn("command.get('" + key + "') is not None", body,
+                          f"a cleared '{key}' would still be dispatched")
+
+    def test_doctor_reports_the_effective_counts(self):
+        # The user file holds overrides only, so counting its entries would tell
+        # someone they have 0 rules while five are in force.
+        source = (ROOT / 'src' / 'whisper_key' / 'doctor.py').read_text(encoding='utf-8')
+        self.assertIn('rules in effect', source)
+        self.assertIn('Voice commands in effect', source)
+
+    def test_an_edited_match_list_overrides_instead_of_duplicating(self):
+        # Dropping an app from a shipped rule has to actually drop it. If the
+        # edited rule were kept as a separate one, the shipped rule would sit
+        # behind it and go on auto-sending in the app that was removed.
+        self._write('app_rules.yaml',
+                    'rules:' + LF +
+                    '  - match: ["slack.exe", "telegram.exe"]' + LF +
+                    '    auto_send: true' + LF)
+        rules = self._load_rules()
+        chat = [r for r in rules if r.get('id') == 'chat-apps']
+        self.assertEqual(len(chat), 1, 'the edited rule and the shipped one both loaded')
+        self.assertEqual(chat[0]['match'], ['slack.exe', 'telegram.exe'])
+        self.assertEqual([r for r in rules if not r.get('id')], [],
+                         'it should have become an override, not a rule of its own')
+        import whisper_key.app_rules as ar
+        matcher = ar.AppRules._matches
+        self.assertFalse(any(matcher(None, r, 'discord.exe', '') for r in rules),
+                         'discord was removed from the list but still matches')
+        self.assertTrue(any(matcher(None, r, 'slack.exe', '') for r in rules))
+
+    def test_broken_user_yaml_is_never_overwritten(self):
+        # A typo in their file must not read as "no entries" and trigger the
+        # migration, which would rewrite what they were in the middle of
+        # editing. The app runs on the shipped rules until they fix it.
+        broken = 'rules:' + LF + '  - match: ["a.exe"' + LF + '    style: casual' + LF
+        self._write('app_rules.yaml', broken)
+        rules = self._load_rules()
+        self.assertEqual([r.get('id') for r in rules],
+                         ['password-managers', 'terminals', 'code-editors',
+                          'chat-apps', 'email-clients'])
+        self.assertEqual((self.dir / 'app_rules.yaml').read_text(encoding='utf-8'), broken)
+        self.assertEqual(list(self.dir.glob('*.bak')), [])
+
+    def test_broken_package_hands_back_the_right_container(self):
+        # A list-shaped section must not come back as a dict just because the
+        # shipped file is unreadable: the callers iterate it.
+        import unittest.mock as mock
+        import whisper_key.defaults_merge as dm
+        missing = str(self.dir / 'nope.yaml')
+        with mock.patch.object(dm, 'resolve_asset_path', return_value=missing):
+            commands, _ = dm.load_layered('nope.yaml', self.dir / 'commands.yaml',
+                                          'commands', '', id_key='trigger')
+            profiles, _ = dm.load_layered('nope.yaml', self.dir / 'profiles.yaml',
+                                          'profiles', '', mapping=True)
+        self.assertEqual(commands, [])
+        self.assertEqual(profiles, {})
+
+    def test_a_corrupt_shipped_file_does_not_crash_the_loader(self):
+        import unittest.mock as mock
+        import whisper_key.defaults_merge as dm
+        bad = self.dir / 'bad.defaults.yaml'
+        bad.write_text('rules:' + LF + '  - match: ["a.exe"' + LF, encoding='utf-8')
+        self._write('app_rules.yaml', 'format: 2' + LF + 'rules: []' + LF)
+        with mock.patch.object(dm, 'resolve_asset_path', return_value=str(bad)):
+            merged, _ = dm.load_layered('bad.defaults.yaml', self.dir / 'app_rules.yaml',
+                                        'rules', '', id_key='id')
+        self.assertEqual(merged, [])

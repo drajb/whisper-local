@@ -6,23 +6,48 @@
 # Ollama isn't running, so the feature degrades quietly rather than erroring.
 
 import logging
-import shutil
 import time
 from pathlib import Path
 from typing import Optional
 
 import pyperclip
-from ruamel.yaml import YAML
 
 # `keyboard` is imported lazily inside the methods that need it. The chain
 # .platform → .platform.windows pulls in win32api, which doesn't exist on Linux.
 # Keeping the import lazy means transforms.py is importable on CI (Linux smoke
 # tests) and from tools that only need to read transforms.yaml metadata.
+from .defaults_merge import load_layered
 from .text_postprocess import _ollama_polish
-from .utils import get_user_app_data_path, resolve_asset_path
+from .utils import get_user_app_data_path
 
 USER_FILE = "transforms.yaml"
 DEFAULTS_FILE = "transforms.defaults.yaml"
+
+USER_FILE_HEADER = """\
+# Whisper Local — your transforms
+#
+# The transforms that ship with the app are applied underneath this file, so
+# they keep improving with each update. Here you only write what's yours:
+#
+#   transforms:
+#     # one of your own
+#     - name: shorten
+#       description: Cut it in half
+#       hotkey: "win+alt+7"
+#       prompt: "Rewrite this in half the words. Output only the result:"
+#
+#     # change a shipped one, naming it and only the keys you want different
+#     - name: polish
+#       hotkey: "win+alt+9"
+#
+#     # turn a shipped one off
+#     - name: expand
+#       disabled: true
+#
+# Shipped names: polish, prompt-engineer, professional, casual, bullets,
+# expand. Hot-reloads on save — no app restart needed.
+
+"""
 
 
 class TransformsManager:
@@ -36,24 +61,17 @@ class TransformsManager:
         self._load()
 
     def _load(self):
-        user_path = Path(get_user_app_data_path()) / USER_FILE
-        if not user_path.exists():
-            defaults = Path(resolve_asset_path(DEFAULTS_FILE))
-            if defaults.exists():
-                shutil.copy2(defaults, user_path)
-        if not user_path.exists():
-            return
-        self._path = user_path
+        self._path = Path(get_user_app_data_path()) / USER_FILE
         self._reload_from_disk()
 
     def _reload_from_disk(self):
         if not self._path:
             return
         try:
-            with open(self._path, encoding="utf-8") as f:
-                data = YAML().load(f) or {}
-            self.transforms = data.get("transforms", []) or []
-            self._mtime = self._path.stat().st_mtime
+            self.transforms, _ = load_layered(
+                DEFAULTS_FILE, self._path, "transforms", USER_FILE_HEADER,
+                id_key="name")
+            self._mtime = self._path.stat().st_mtime if self._path.exists() else 0.0
             self.logger.info(f"Loaded {len(self.transforms)} transforms")
         except Exception as e:
             self.logger.error(f"Failed to load transforms: {e}")
