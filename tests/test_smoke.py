@@ -3520,3 +3520,62 @@ class LayeredDefaultsTests(unittest.TestCase):
             merged, _ = dm.load_layered('bad.defaults.yaml', self.dir / 'app_rules.yaml',
                                         'rules', '', id_key='id')
         self.assertEqual(merged, [])
+
+
+class DefaultInputFollowTests(unittest.TestCase):
+    """The mic follows the OS default after a dock switch or wake-up at another desk."""
+
+    # A StateManager with heavy deps faked; `default_id` is what Core Audio reports.
+    def _state_manager(self, input_device='default', state='idle', capturing=True):
+        import unittest.mock as mock
+        try:
+            import numpy  # noqa: F401  (must predate the sys.modules snapshot)
+        except ImportError:
+            self.skipTest('numpy not installed')
+        fakes = fake_platform_modules()
+        for name in ('PIL', 'PIL.Image', 'PIL.ImageDraw', 'pystray', 'sounddevice', 'soxr',
+                     'faster_whisper', 'playsound3'):
+            fakes[name] = _stand_in_module(name)
+        reimport_under(self, fakes)
+        from whisper_key.state_manager import StateManager
+        import whisper_key.state_manager as state_manager_module
+        sm = StateManager.__new__(StateManager)
+        sm.logger = __import__('logging').getLogger('test')
+        sm.config_manager = mock.Mock()
+        sm.config_manager.get_setting = lambda section, key: input_device
+        sm.audio_recorder = mock.Mock()
+        sm.audio_recorder.is_capturing = lambda: capturing
+        sm.get_current_state = lambda: state
+        sm._rebind_to_default_input = mock.Mock()
+        self.endpoints = state_manager_module.audio_endpoints
+        return sm
+
+    def test_rebinds_when_the_default_mic_changes(self):
+        sm = self._state_manager()
+        self.endpoints.get_default_input_id = lambda: 'headset'
+        self.assertEqual(sm._follow_default_input('webcam'), 'headset')
+        sm._rebind_to_default_input.assert_called_once()
+
+    def test_leaves_an_unchanged_working_mic_alone(self):
+        sm = self._state_manager()
+        self.endpoints.get_default_input_id = lambda: 'webcam'
+        self.assertEqual(sm._follow_default_input('webcam'), 'webcam')
+        sm._rebind_to_default_input.assert_not_called()
+
+    def test_rebinds_when_the_capture_stream_died(self):
+        sm = self._state_manager(capturing=False)
+        self.endpoints.get_default_input_id = lambda: 'webcam'
+        sm._follow_default_input('webcam')
+        sm._rebind_to_default_input.assert_called_once()
+
+    def test_waits_while_recording_and_retries_later(self):
+        sm = self._state_manager(state='recording')
+        self.endpoints.get_default_input_id = lambda: 'headset'
+        self.assertEqual(sm._follow_default_input('webcam'), 'webcam', 'change stays pending')
+        sm._rebind_to_default_input.assert_not_called()
+
+    def test_explicitly_chosen_mic_is_not_followed(self):
+        sm = self._state_manager(input_device=3)
+        self.endpoints.get_default_input_id = lambda: 'headset'
+        sm._follow_default_input('webcam')
+        sm._rebind_to_default_input.assert_not_called()

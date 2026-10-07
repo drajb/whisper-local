@@ -1216,20 +1216,25 @@ class StateManager:
         while True:
             time.sleep(self.DEFAULT_INPUT_POLL_SECONDS)
             try:
-                # A mic picked explicitly in the tray stays put.
-                if self.config_manager.get_setting('audio', 'input_device') != 'default':
-                    continue
-                current_input_id = audio_endpoints.get_default_input_id()
-                default_changed = current_input_id is not None and current_input_id != known_input_id
-                if not default_changed and self.audio_recorder.is_capturing():
-                    continue
-                # Never swap the mic mid-recording or mid-transcription; retry next tick.
-                if self.get_current_state() != 'idle':
-                    continue
-                known_input_id = current_input_id or known_input_id
-                self._rebind_to_default_input()
+                known_input_id = self._follow_default_input(known_input_id)
             except Exception as e:
                 self.logger.error(f"Default input watcher failed: {e}")
+
+    # One watcher tick: rebind if the default mic changed or capture died.
+    # Returns the default input ID to compare against on the next tick.
+    def _follow_default_input(self, known_input_id):
+        # A mic picked explicitly in the tray stays put.
+        if self.config_manager.get_setting('audio', 'input_device') != 'default':
+            return known_input_id
+        current_input_id = audio_endpoints.get_default_input_id()
+        default_changed = current_input_id is not None and current_input_id != known_input_id
+        if not default_changed and self.audio_recorder.is_capturing():
+            return known_input_id
+        # Never swap the mic mid-recording or mid-transcription; retry next tick.
+        if self.get_current_state() != 'idle':
+            return known_input_id
+        self._rebind_to_default_input()
+        return current_input_id or known_input_id
 
     def _rebind_to_default_input(self):
         # PortAudio enumerates devices only at init: close our stream, re-init
