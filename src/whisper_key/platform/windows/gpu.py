@@ -366,27 +366,34 @@ def _check_runtime_compatibility(reqs: dict, runtime_version: str) -> bool:
 # without them, and the first transcription then hangs instead of raising.
 # cudnn64_9 is only a front; it pulls in the ops/cnn sub-libraries lazily, so
 # those are probed by name too rather than assumed to come along.
+# Each entry lists interchangeable names; one loading is enough. cuDNN 8 is
+# accepted too: setups that pinned it (e.g. after a cuDNN 9 hang on hybrid
+# graphics laptops) transcribe fine and must not be pushed to CPU.
 _CUDA_RUNTIME_LIBRARIES = (
-    'cublas64_12.dll',
-    'cublasLt64_12.dll',
-    'cudnn64_9.dll',
-    'cudnn_ops64_9.dll',
-    'cudnn_cnn64_9.dll',
+    ('cublas64_12.dll',),
+    ('cublasLt64_12.dll',),
+    ('cudnn64_9.dll', 'cudnn64_8.dll'),
+    ('cudnn_ops64_9.dll', 'cudnn_ops_infer64_8.dll'),
+    ('cudnn_cnn64_9.dll', 'cudnn_cnn_infer64_8.dll'),
 )
 
 
-# Names from _CUDA_RUNTIME_LIBRARIES that won't load. winmode=0 is the plain
-# LoadLibrary search order (PATH included), i.e. exactly how ctranslate2 will
-# look. ctypes' default mode skips PATH and would wrongly flag a CUDA toolkit
-# that is installed system-wide.
+# winmode=0 is the plain LoadLibrary search order (PATH included), i.e. exactly
+# how ctranslate2 will look. ctypes' default mode skips PATH and would wrongly
+# flag a CUDA toolkit that is installed system-wide.
+def _library_loads(name: str) -> bool:
+    try:
+        ctypes.WinDLL(name, winmode=0)
+        return True
+    except OSError:
+        return False
+
+
+# Entries of _CUDA_RUNTIME_LIBRARIES with no loadable name, reported by their
+# preferred (first) name.
 def _missing_cuda_libraries() -> list[str]:
-    missing = []
-    for name in _CUDA_RUNTIME_LIBRARIES:
-        try:
-            ctypes.WinDLL(name, winmode=0)
-        except OSError:
-            missing.append(name)
-    return missing
+    return [names[0] for names in _CUDA_RUNTIME_LIBRARIES
+            if not any(_library_loads(name) for name in names)]
 
 
 # CUDA libraries the configured GPU backend needs but can't load; empty when
