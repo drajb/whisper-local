@@ -2623,14 +2623,22 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
             def __getattr__(self, name):
                 return lambda *args, **kwargs: None
 
+        # Only a variable owned by the window sees its checkbox's tick. Real
+        # tkinter puts a variable with no master on the process's first root.
         class BooleanVar(Widget):
+            def __init__(self, master=None, value=False):
+                self.value = value
+                if master is not None:
+                    master.variables.append(self)
+
             def get(self):
-                return False
+                return self.value
 
         class Tk(Widget):
             def __init__(self):
                 self.after_callbacks = []
                 self.close_handler = None
+                self.variables = []
 
             def protocol(self, name, handler):
                 self.close_handler = handler
@@ -2687,6 +2695,19 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         call = source[source.index('show_welcome_window('):]
         call = call[:call.index(')\n')]
         self.assertIn('shutdown_event=shutdown_event', call)
+
+    # --- #17: the welcome window's "start on login" box did nothing on macOS ---
+    def test_welcome_autostart_tick_enables_autostart(self):
+        import unittest.mock as mock
+
+        def tick_then_dismiss(root):
+            for variable in root.variables:
+                variable.value = True  # what clicking the Checkbutton does
+            root.close_handler()
+        with mock.patch('whisper_key.autostart.is_supported', return_value=True), \
+             mock.patch('whisper_key.autostart.enable') as enable:
+            self._run_welcome_with_fake_tk(tick_then_dismiss)
+        enable.assert_called_once()
 
     # --- #14 follow-through: every other Tk window on macOS ---
     def test_windows_stay_in_process_where_tk_threads_are_fine(self):

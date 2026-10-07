@@ -130,7 +130,11 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
     # Opt-in autostart: offered here, off unless the user ticks it. Only shown on
     # platforms where we can actually wire it up (Windows / macOS).
     from . import autostart
-    autostart_var = tk.BooleanVar(value=False)
+    # The variable has to belong to this window. Without a master it goes to the
+    # first Tk root in the process, which on macOS is the hidden root from
+    # platform/macos/app.py. The tick then landed in this window's interpreter
+    # while get() read the hidden root's copy, which stayed False (issue #17).
+    autostart_var = tk.BooleanVar(master=root, value=False)
     if autostart.is_supported():
         cb = tk.Checkbutton(
             container, variable=autostart_var,
