@@ -2,6 +2,14 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **A working NVIDIA setup on cuDNN 8 was pushed to CPU.** The GPU check
+  looked only for the cuDNN 9 libraries, so machines that keep cuDNN 8
+  (some laptops hang on the first transcription with cuDNN 9) were reported
+  as "CUDA libraries not found" and fell back to CPU. cuDNN 8 now counts.
+
 ## [0.21.0]
 
 ### Changed
