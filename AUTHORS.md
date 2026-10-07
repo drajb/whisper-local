@@ -12,7 +12,6 @@ Everyone whose pull requests have been merged. Add yourself here in your first P
 
 <!-- Add your name here in alphabetical order when contributing. -->
 - **Chad DePue** ([@cbd](https://github.com/cbd))
-
 - **ElHunne** ([@ElHunne](https://github.com/ElHunne))
 
 ## Open-source projects we build on

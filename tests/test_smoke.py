@@ -1494,7 +1494,9 @@ class AutostartTests(unittest.TestCase):
         from whisper_key import autostart
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'agent.plist'
-            with mock.patch('whisper_key.autostart._mac_plist_path', return_value=p):
+            with mock.patch('whisper_key.autostart._mac_plist_path', return_value=p), \
+                 mock.patch('whisper_key.autostart._mac_launcher_dir', return_value=Path(d) / 'support'), \
+                 mock.patch('whisper_key.autostart._mac_build_launcher', return_value=None):
                 self.assertFalse(autostart._mac_is_enabled())
                 autostart._mac_enable()
                 self.assertTrue(autostart._mac_is_enabled())
@@ -1508,6 +1510,200 @@ class AutostartTests(unittest.TestCase):
         main_src = (ROOT / "src" / "whisper_key" / "main.py").read_text(encoding="utf-8")
         self.assertIn('--enable-autostart', main_src)
         self.assertIn('--disable-autostart', main_src)
+
+    # --- #19: macOS checked login-time permissions against bare Python ---
+    # A throwaway folder in place of ~/Library/Application Support/Whisper Local.
+    def _launcher_dir(self):
+        import tempfile
+        from pathlib import Path
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        return Path(folder.name) / 'Whisper Local'
+
+    # Stands in for xcode-select, xcrun and codesign. Records each tool it runs;
+    # "clang" writes a fake executable; `fail` names a tool that fails.
+    def _fake_toolchain(self, calls, fail=None, signed=True):
+        import subprocess
+        from pathlib import Path
+
+        def run(args, check=False, timeout=60):
+            tool = ' '.join(args[:2]) if args[0] == '/usr/bin/codesign' else args[0]
+            calls.append(tool)
+            if tool == fail:
+                raise subprocess.CalledProcessError(1, args)
+            if args[0] == '/usr/bin/xcode-select':
+                return subprocess.CompletedProcess(args, 0, stdout='/', stderr='')
+            if args[0] == '/usr/bin/xcrun':
+                Path(args[args.index('-o') + 1]).write_bytes(b'launcher')
+            code = 1 if tool == '/usr/bin/codesign --verify' and not signed else 0
+            return subprocess.CompletedProcess(args, code, stdout='', stderr='')
+        return run
+
+    def test_macos_agent_starts_the_app_through_the_launcher(self):
+        import plistlib
+        import tempfile
+        import unittest.mock as mock
+        from pathlib import Path
+        from whisper_key import autostart
+        launcher = Path('/Users/me/Library/Application Support/Whisper Local/'
+                        'Whisper Local.app/Contents/MacOS/Whisper Local')
+        with tempfile.TemporaryDirectory() as d:
+            plist = Path(d) / 'agent.plist'
+            with mock.patch.object(autostart, '_mac_plist_path', return_value=plist):
+                # The command is compiled into the launcher. Without the launcher
+                # (no Command Line Tools), Python runs directly, as before.
+                for built, expected in ((launcher, [str(launcher)]),
+                                        (None, autostart._launch_command())):
+                    with mock.patch.object(autostart, '_mac_build_launcher', return_value=built):
+                        autostart._mac_enable()
+                    agent = plistlib.loads(plist.read_bytes())
+                    self.assertEqual(agent['ProgramArguments'], expected)
+
+    def test_launcher_build_stops_without_the_command_line_tools(self):
+        # Running xcrun or clang without the tools opens an install dialog, so
+        # nothing may run after the xcode-select check fails.
+        import subprocess
+        import unittest.mock as mock
+        from whisper_key import autostart
+        missing = subprocess.CompletedProcess(['/usr/bin/xcode-select', '-p'], 2, stdout='', stderr='')
+        with mock.patch.object(autostart, '_mac_launcher_dir', return_value=self._launcher_dir()), \
+             mock.patch.object(autostart, '_mac_run', return_value=missing) as run:
+            self.assertIsNone(autostart._mac_build_launcher(['/usr/bin/python3', '-m', 'whisper_key.main']))
+        self.assertEqual([c.args[0][0] for c in run.call_args_list], ['/usr/bin/xcode-select'])
+
+    def test_launcher_is_rebuilt_only_when_its_inputs_change(self):
+        import unittest.mock as mock
+        from whisper_key import autostart
+        folder = self._launcher_dir()
+        command = ['/usr/bin/python3', '-m', 'whisper_key.main']
+        calls = []
+        with mock.patch.object(autostart, '_mac_launcher_dir', return_value=folder), \
+             mock.patch.object(autostart, '_LSREGISTER', '/usr/bin/true'), \
+             mock.patch.object(autostart, '_mac_run', side_effect=self._fake_toolchain(calls)):
+            executable = autostart._mac_build_launcher(command)
+            self.assertTrue(executable.is_file())
+            self.assertIn('/usr/bin/xcrun', calls)
+            calls.clear()
+            self.assertEqual(autostart._mac_build_launcher(command), executable)
+            self.assertEqual(calls, ['/usr/bin/codesign --verify'], 'an unchanged launcher is reused')
+            calls.clear()
+            autostart._mac_build_launcher(['/opt/other/python3', '-m', 'whisper_key.main'])
+            self.assertIn('/usr/bin/xcrun', calls, 'a new command needs a new launcher')
+
+    def test_failed_rebuild_keeps_the_working_launcher(self):
+        # For example, Xcode was updated and its license not yet accepted.
+        import unittest.mock as mock
+        from whisper_key import autostart
+        folder = self._launcher_dir()
+        working = folder / 'Whisper Local.app' / 'Contents' / 'MacOS' / 'Whisper Local'
+        working.parent.mkdir(parents=True)
+        working.write_bytes(b'granted launcher')
+        calls = []
+        toolchain = self._fake_toolchain(calls, fail='/usr/bin/xcrun', signed=False)
+        with mock.patch.object(autostart, '_mac_launcher_dir', return_value=folder), \
+             mock.patch.object(autostart, '_mac_run', side_effect=toolchain):
+            self.assertIsNone(autostart._mac_build_launcher(['/usr/bin/python3', '-m', 'whisper_key.main']))
+        self.assertEqual(working.read_bytes(), b'granted launcher')
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ['Whisper Local.app'],
+                         'no half-built app or temporary folder may be left behind')
+
+    def test_launcher_builds_as_a_signed_app(self):
+        # Compiles the real launcher.c, so it needs a Mac with the Command Line
+        # Tools, like the macOS CI runner.
+        import plistlib
+        import re
+        import subprocess
+        import unittest.mock as mock
+        from whisper_key import autostart
+        if sys.platform != 'darwin' or subprocess.run(['/usr/bin/xcode-select', '-p'],
+                                                      capture_output=True).returncode:
+            self.skipTest('needs macOS with the Command Line Tools')
+        command = [sys.executable, '-m', 'whisper_key.main']
+        cdhashes = []
+        for _ in range(2):
+            folder = self._launcher_dir()
+            with mock.patch.object(autostart, '_mac_launcher_dir', return_value=folder), \
+                 mock.patch.object(autostart, '_LSREGISTER', '/usr/bin/true'):
+                executable = autostart._mac_build_launcher(command)
+            app = folder / 'Whisper Local.app'
+            self.assertEqual(executable, app / 'Contents' / 'MacOS' / 'Whisper Local')
+            verify = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(app)],
+                                    capture_output=True, text=True)
+            self.assertEqual(verify.returncode, 0, verify.stderr)
+            # macOS files the permissions under this identifier and signature.
+            details = subprocess.run(['/usr/bin/codesign', '-dvvv', str(app)],
+                                     capture_output=True, text=True).stderr
+            self.assertIn('Identifier=' + autostart._MAC_LABEL, details)
+            self.assertRegex(details, r'flags=0x\w+\([^)]*runtime', 'hardened runtime')
+            cdhashes.append(re.search(r'CDHash=(\w+)', details).group(1))
+            info = plistlib.loads((app / 'Contents' / 'Info.plist').read_bytes())
+            self.assertTrue(info['LSUIElement'])
+            self.assertIn('NSMicrophoneUsageDescription', info)
+        # Turning Start on login off deletes the app. Turning it back on must give
+        # the same signature, or macOS asks for both permissions again.
+        self.assertEqual(cdhashes[0], cdhashes[1])
+
+    def test_launcher_runs_only_its_built_in_command(self):
+        # A build with the Accessibility check stubbed out, since this process may
+        # not be trusted, around a stand-in for Whisper Local.
+        import json
+        import subprocess
+        import tempfile
+        import time
+        from pathlib import Path
+        from whisper_key import autostart
+        if sys.platform != 'darwin' or subprocess.run(['/usr/bin/xcode-select', '-p'],
+                                                      capture_output=True).returncode:
+            self.skipTest('needs macOS with the Command Line Tools')
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            report, mode = d / 'report', d / 'mode'
+            (d / 'child.py').write_text(
+                'import json, os, signal, subprocess, sys, time\n'
+                'report, mode = sys.argv[1], open(sys.argv[2]).read()\n'
+                'if mode == "report":\n'
+                '    json.dump({"argv": sys.argv[1:], "env": sorted(k for k in os.environ\n'
+                '               if k.startswith(("DYLD_", "PYTHON")))}, open(report, "w"))\n'
+                '    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1)"])\n'
+                '    sys.exit(3)\n'
+                'signal.signal(signal.SIGTERM, lambda *_: (open(report, "w").write("stopped"), sys.exit(0)))\n'
+                'open(report, "w").write("ready")\n'
+                'time.sleep(30)\n')
+            (d / 'command.h').write_bytes(autostart._mac_command_header(
+                [sys.executable, str(d / 'child.py'), str(report), str(mode)]))
+            (d / 'ax_stub.c').write_text(
+                '#include <ApplicationServices/ApplicationServices.h>\n'
+                '#define AXIsProcessTrusted() ((Boolean)1)\n'
+                '#define AXIsProcessTrustedWithOptions(options) ((Boolean)1)\n'
+                f'#include "{autostart._MAC_LAUNCHER_SOURCE}"\n')
+            launcher = str(d / 'launcher')
+            subprocess.run(['/usr/bin/xcrun', 'clang', '-O2', '-I', str(d), '-framework',
+                            'ApplicationServices', '-o', launcher, str(d / 'ax_stub.c')],
+                           check=True, capture_output=True)
+
+            # Arguments and code-loading variables must not reach the app, the
+            # launcher exits with the app's code, and it waits for an instance
+            # started the way the tray's Restart item starts one.
+            mode.write_text('report')
+            env = dict(os.environ, DYLD_FALLBACK_LIBRARY_PATH='/nonexistent', PYTHONSTARTUP='/nonexistent')
+            started = time.monotonic()
+            result = subprocess.run([launcher, '/bin/sh', '-c', 'exit 9'], env=env, timeout=30)
+            self.assertEqual(result.returncode, 3)
+            self.assertGreaterEqual(time.monotonic() - started, 1.0)
+            seen = json.loads(report.read_text())
+            self.assertEqual(seen['argv'], [str(report), str(mode)])
+            self.assertEqual(seen['env'], [])
+
+            # launchd stops the job with SIGTERM to the launcher alone.
+            mode.write_text('term')
+            report.unlink()
+            running = subprocess.Popen([launcher])
+            deadline = time.monotonic() + 10
+            while not (report.exists() and report.read_text() == 'ready') and time.monotonic() < deadline:
+                time.sleep(0.05)
+            running.terminate()
+            running.wait(timeout=10)
+            self.assertEqual(report.read_text(), 'stopped')
 
 
 class DefaultsTests(unittest.TestCase):
@@ -1563,7 +1759,9 @@ class ReviewFixTests(unittest.TestCase):
         from pathlib import Path
         from whisper_key import autostart
         with tempfile.TemporaryDirectory() as d:
-            with mock.patch("whisper_key.autostart._mac_plist_path", return_value=Path(d) / "a.plist"):
+            with mock.patch("whisper_key.autostart._mac_plist_path", return_value=Path(d) / "a.plist"), \
+                 mock.patch("whisper_key.autostart._mac_launcher_dir", return_value=Path(d) / "support"), \
+                 mock.patch("whisper_key.autostart._mac_build_launcher", return_value=None):
                 self.assertTrue(autostart.toggle())
                 self.assertFalse(autostart.toggle())
 
@@ -2498,6 +2696,35 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             onboarding.handle_gpu_failure(RuntimeError('CUDA libraries not found'), mock.Mock())
         prompt.assert_not_called()
+
+    def test_missing_accessibility_under_launchd_asks_macos(self):
+        # Issue #19: Start on login runs the app under launchd, with /dev/null
+        # for stdin. The terminal prompt raised termios.error there, and the app
+        # exited at every login.
+        import io
+        import unittest.mock as mock
+        permissions = self._load('platform/macos/permissions.py', 'wk_mac_permissions')
+        with mock.patch.object(permissions.sys, 'stdin', io.StringIO()), \
+             mock.patch.object(permissions, 'request_accessibility_permission') as request:
+            self.assertTrue(permissions.handle_missing_permission(mock.Mock()))
+        request.assert_called_once()
+
+    def test_missing_accessibility_in_a_terminal_still_asks_there(self):
+        import types
+        import unittest.mock as mock
+        terminal_ui = types.ModuleType('whisper_key.terminal_ui')
+        terminal_ui.prompt_choice = mock.Mock(return_value=2)  # "Disable auto-paste"
+        permissions = self._load('platform/macos/permissions.py', 'whisper_key.platform.macos.permissions_tty')
+        stdin = mock.Mock()
+        stdin.isatty.return_value = True
+        config = mock.Mock()
+        with mock.patch.dict(sys.modules, {'whisper_key.terminal_ui': terminal_ui}), \
+             mock.patch.object(permissions.sys, 'stdin', stdin), \
+             mock.patch.object(permissions, 'request_accessibility_permission') as request:
+            self.assertTrue(permissions.handle_missing_permission(config))
+        terminal_ui.prompt_choice.assert_called_once()
+        request.assert_not_called()
+        config.update_user_setting.assert_called_once_with('clipboard', 'auto_paste', False)
 
     def test_doctor_flags_missing_cuda_libraries(self):
         import io

@@ -6,12 +6,18 @@
 # Windows: a value under HKCU\...\CurrentVersion\Run (stdlib winreg, no extra dep,
 #          visible in Task Manager → Startup). Launches windowless (pythonw / the
 #          GUI-subsystem .exe) so there's no console flash at boot.
-# macOS:   a LaunchAgent plist in ~/Library/LaunchAgents.
+# macOS:   a LaunchAgent plist in ~/Library/LaunchAgents. It starts the app through
+#          a small helper app, so macOS permissions attach to that app.
 # Other:   not supported — returns a clear message; the caller falls back to docs.
 
+import hashlib
 import logging
 import os
+import plistlib
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path, PureWindowsPath
 
 from .utils import build_relaunch_command
@@ -109,8 +115,107 @@ def _win_disable() -> bool:
 
 # ── macOS (LaunchAgent) ──
 
+# launchd runs a LaunchAgent's program directly, so macOS would check
+# Accessibility and Microphone against the bare Python binary, which nobody has
+# granted anything (issue #19). The agent starts Whisper Local through a small
+# app instead, built from platform/macos/assets/launcher.c with the command
+# compiled in. macOS checks a process against the app that started it, so the
+# grants land on "Whisper Local".
+_MAC_LAUNCHER_SOURCE = Path(__file__).parent / "platform" / "macos" / "assets" / "launcher.c"
+_MAC_LAUNCHER_NAME = "Whisper Local"
+# macOS files the grants under the app's code signature, which covers this
+# Info.plist. Keep it constant, with no version numbers, so rebuilds keep them.
+_MAC_LAUNCHER_INFO = {
+    "CFBundleExecutable": _MAC_LAUNCHER_NAME,
+    "CFBundleIdentifier": _MAC_LABEL,
+    "CFBundleName": _MAC_LAUNCHER_NAME,
+    "CFBundlePackageType": "APPL",
+    "CFBundleShortVersionString": "1",
+    "CFBundleVersion": "1",
+    "LSUIElement": True,
+    "NSMicrophoneUsageDescription": "Whisper Local transcribes your dictation on this Mac.",
+}
+_LSREGISTER = ("/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+               "LaunchServices.framework/Support/lsregister")
+
+
 def _mac_plist_path() -> Path:
     return Path.home() / "Library" / "LaunchAgents" / f"{_MAC_LABEL}.plist"
+
+
+# Kept out of ~/.whisperkey, which people clear to reset their settings.
+def _mac_launcher_dir() -> Path:
+    return Path.home() / "Library" / "Application Support" / _MAC_LAUNCHER_NAME
+
+
+def _mac_run(args, check=False, timeout=60):
+    return subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+
+
+# The launcher's command as C source. Every byte is written as a hex escape, so
+# no path can break out of its string.
+def _mac_command_header(command) -> bytes:
+    strings = ", ".join('"' + "".join(f"\\x{byte:02x}" for byte in os.fsencode(arg)) + '"'
+                        for arg in command)
+    return f"static char *const COMMAND[] = {{{strings}, NULL}};\n".encode()
+
+
+# Returns the launcher's executable for `command`, building it first if needed,
+# or None if it can't be built. Building needs clang from Apple's Command Line
+# Tools. It happens in a temporary folder, and the new app replaces the old one
+# only once it is signed, so a failed build leaves a working launcher alone.
+def _mac_build_launcher(command):
+    app = _mac_launcher_dir() / f"{_MAC_LAUNCHER_NAME}.app"
+    executable = app / "Contents" / "MacOS" / _MAC_LAUNCHER_NAME
+    # Outside the bundle, so it isn't part of the signature.
+    record = _mac_launcher_dir() / "built-from.sha256"
+    try:
+        header = _mac_command_header(command)
+        info = plistlib.dumps(_MAC_LAUNCHER_INFO)
+        built_from = hashlib.sha256(
+            b"\0".join([_MAC_LAUNCHER_SOURCE.read_bytes(), header, info])).hexdigest()
+        if (record.is_file() and record.read_text() == built_from
+                and _mac_run(["/usr/bin/codesign", "--verify", "--strict", str(app)]).returncode == 0):
+            return executable
+
+        # Checked first because running xcrun or clang without the tools opens
+        # macOS's "install the command line developer tools" dialog.
+        tools = _mac_run(["/usr/bin/xcode-select", "-p"])
+        if tools.returncode != 0 or not Path(tools.stdout.strip()).is_dir():
+            logger.warning("Start on login needs Apple's Command Line Tools to give Whisper Local "
+                           "its own permissions. Install them with: xcode-select --install")
+            return None
+
+        app.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=app.parent) as build:
+            staged = Path(build) / app.name
+            (staged / "Contents" / "MacOS").mkdir(parents=True)
+            (staged / "Contents" / "Info.plist").write_bytes(info)
+            (Path(build) / "command.h").write_bytes(header)
+            _mac_run(["/usr/bin/xcrun", "clang", "-O2", "-I", build, "-framework", "ApplicationServices",
+                      "-o", str(staged / "Contents" / "MacOS" / _MAC_LAUNCHER_NAME),
+                      str(_MAC_LAUNCHER_SOURCE)], check=True, timeout=120)
+            # The hardened runtime makes dyld ignore DYLD_* variables, so no code
+            # can be injected into the launcher itself.
+            _mac_run(["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime",
+                      str(staged)], check=True)
+            _mac_run(["/usr/bin/codesign", "--verify", "--strict", str(staged)], check=True)
+            if app.exists():
+                os.replace(app, Path(build) / "replaced.app")
+            os.replace(staged, app)
+        record.write_text(built_from)
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"Could not build the login launcher: {e}")
+        return None
+
+    # System Settings looks apps up through LaunchServices to list them under
+    # Privacy & Security, and LaunchServices doesn't look in Application Support
+    # on its own.
+    try:
+        _mac_run([_LSREGISTER, "-f", str(app)])
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"Could not register the login launcher with LaunchServices: {e}")
+    return executable
 
 
 def _mac_is_enabled() -> bool:
@@ -119,7 +224,9 @@ def _mac_is_enabled() -> bool:
 
 def _mac_enable() -> bool:
     from xml.sax.saxutils import escape
-    args = _launch_command()
+    # Without the launcher the agent runs Python directly, as before.
+    launcher = _mac_build_launcher(_launch_command())
+    args = [str(launcher)] if launcher else _launch_command()
     # Escape &, <, > — a username/path containing them would otherwise produce an
     # invalid plist that launchd silently refuses to load.
     args_xml = "\n".join(f"        <string>{escape(a)}</string>" for a in args)
@@ -153,6 +260,10 @@ def _mac_disable() -> bool:
         path.unlink()
     except FileNotFoundError:
         pass
+    # The launcher exists only for the LaunchAgent. Turning Start on login back
+    # on rebuilds it, and the same inputs give the same signature, so macOS
+    # keeps the grants.
+    shutil.rmtree(_mac_launcher_dir(), ignore_errors=True)
     logger.info("Autostart disabled (LaunchAgent removed)")
     return True
 
