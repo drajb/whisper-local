@@ -45,7 +45,7 @@ from .stats import record_transcription
 from .audit_log import record as audit_record
 from .terminal_title import TerminalTitle
 from .transcript_log import record_transcript
-from .platform import foreground
+from .platform import foreground, audio_endpoints
 from .level_overlay import LevelOverlay
 from .fallback_window import FallbackWindow
 
@@ -108,6 +108,7 @@ class StateManager:
         self.audio_recorder = audio_recorder
         self.system_tray = OptionalComponent(system_tray)
         self._ensure_audio_device_for_host(self._current_audio_host)
+        self._start_default_input_watcher()
 
         try:
             self.transforms_manager.system_tray = system_tray
@@ -118,7 +119,8 @@ class StateManager:
         if overlay_cfg.get('enabled', True):
             try:
                 self.level_overlay = LevelOverlay(
-                    level_provider=self.audio_recorder.get_current_level,
+                    # Late-bound: a device switch replaces self.audio_recorder.
+                    level_provider=lambda: self.audio_recorder.get_current_level(),
                     click_through=overlay_cfg.get('click_through', True),
                     position=overlay_cfg.get('position', 'bottom-center'),
                 )
@@ -1184,13 +1186,73 @@ class StateManager:
                 whisper_mode_config=audio_cfg.get('whisper_mode') or {},
             )
 
+            # Close the old stream, otherwise it keeps capturing in the background.
+            old_recorder = self.audio_recorder
             self.audio_recorder = new_recorder
+            old_recorder.shutdown()
 
             print(f"✅ Successfully switched audio device to: {device_name}")
 
         except Exception as e:
             self.logger.error(f"Failed to change audio device: {e}")
             print(f"❌ Failed to switch audio device: {e}")
+
+    # ── Following the system default microphone ──────────────────────────────
+    # With `input_device: default` the mic is resolved once at startup, and
+    # PortAudio never refreshes its device list by itself. After a dock switch
+    # or a wake-up at a desk with other hardware, recordings would keep using
+    # the old (or a dead) mic. This thread polls the OS default input and
+    # rebinds when it changes or when the capture stream has died.
+    DEFAULT_INPUT_POLL_SECONDS = 2.0
+
+    def _start_default_input_watcher(self):
+        if audio_endpoints.get_default_input_id() is None:
+            return  # platform without support, or no mic at all right now
+        threading.Thread(target=self._watch_default_input, daemon=True,
+                         name="default-input-watcher").start()
+
+    def _watch_default_input(self):
+        known_input_id = audio_endpoints.get_default_input_id()
+        while True:
+            time.sleep(self.DEFAULT_INPUT_POLL_SECONDS)
+            try:
+                known_input_id = self._follow_default_input(known_input_id)
+            except Exception as e:
+                self.logger.error(f"Default input watcher failed: {e}")
+
+    # One watcher tick: rebind if the default mic changed or capture died.
+    # Returns the default input ID to compare against on the next tick.
+    def _follow_default_input(self, known_input_id):
+        # A mic picked explicitly in the tray stays put.
+        if self.config_manager.get_setting('audio', 'input_device') != 'default':
+            return known_input_id
+        current_input_id = audio_endpoints.get_default_input_id()
+        default_changed = current_input_id is not None and current_input_id != known_input_id
+        if not default_changed and self.audio_recorder.is_capturing():
+            return known_input_id
+        # Never swap the mic mid-recording or mid-transcription; retry next tick.
+        if self.get_current_state() != 'idle':
+            return known_input_id
+        self._rebind_to_default_input()
+        return current_input_id or known_input_id
+
+    def _rebind_to_default_input(self):
+        # PortAudio enumerates devices only at init: close our stream, re-init
+        # it, then pick the host's now-current default input.
+        self.audio_recorder.shutdown()
+        sd._terminate()
+        sd._initialize()
+
+        device_id = self._get_default_device_for_host(self._current_audio_host)
+        if device_id is None:
+            self.logger.warning("Default input changed, but no input device is available")
+            return
+
+        device_name = self._get_device_name(device_id)
+        self.logger.info(f"Default input changed, following it to: {device_name}")
+        self._execute_audio_device_change(device_id, device_name)
+        self.system_tray.notify(f"Microphone: {device_name}")
+        self.system_tray.refresh_menu()
 
     def _initialize_audio_host(self):
         try:

@@ -5,6 +5,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
 ## [Unreleased]
 
 ### Fixed
+- **After a dock switch or waking up at another desk, dictation kept using
+  the old microphone, or recorded silence.** The mic was picked once at
+  startup and never revisited. With `input_device: default` it now follows
+  the Windows default input: a change is picked up within two seconds
+  (never mid-recording) and the tray shows which mic is now in use. A
+  capture stream that died during sleep is reopened the same way. A mic
+  chosen explicitly in the tray stays put. Switching devices also no longer
+  leaves the previous mic's stream running, and the level meter now shows
+  the mic actually in use.
 - **A working NVIDIA setup on cuDNN 8 was pushed to CPU.** The GPU check
   looked only for the cuDNN 9 libraries, so machines that keep cuDNN 8
   (some laptops hang on the first transcription with cuDNN 9) were reported
