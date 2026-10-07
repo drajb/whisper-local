@@ -12,6 +12,8 @@ Everyone whose pull requests have been merged. Add yourself here in your first P
 
 <!-- Add your name here in alphabetical order when contributing. -->
 
+- **ElHunne** ([@ElHunne](https://github.com/ElHunne))
+
 ## Open-source projects we build on
 
 Whisper Local stands on the shoulders of a lot of excellent work:
