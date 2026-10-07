@@ -446,6 +446,11 @@ class AudioRecorder:
     def get_recording_status(self) -> bool:
         return self.is_recording
 
+    # False once the capture thread gave up (e.g. stream still dead after the
+    # disconnect retries), so the owner can rebind to a working device.
+    def is_capturing(self) -> bool:
+        return self._capture_thread is not None and self._capture_thread.is_alive()
+
     def get_audio_duration(self, audio_data: np.ndarray) -> float:
         if audio_data is None or len(audio_data) == 0:
             return 0.0

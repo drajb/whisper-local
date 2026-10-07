@@ -16,7 +16,8 @@ sys.path.insert(0, str(ROOT / "src"))
 # The real platform modules are never evicted either. On macOS, re-running
 # platform/macos/app.py redefines an Objective-C class, which pyobjc refuses.
 _PLATFORM_SUBMODULES = ('hotkeys', 'keyboard', 'foreground', 'app', 'console',
-                        'permissions', 'icons', 'paths', 'instance_lock', 'gpu')
+                        'permissions', 'icons', 'paths', 'instance_lock', 'gpu',
+                        'audio_endpoints')
 
 
 # A module whose every attribute is a MagicMock unless set explicitly.
