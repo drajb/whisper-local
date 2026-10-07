@@ -2411,6 +2411,11 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
                                         'cudnn64_9.dll', 'cudnn_ops64_9.dll'))
         self.assertEqual(gpu._missing_cuda_libraries(), ['cudnn_cnn64_9.dll'])
 
+    def test_gpu_probe_accepts_cudnn_8(self):
+        gpu = self._gpu_probe(loadable=('cublas64_12.dll', 'cublasLt64_12.dll', 'cudnn64_8.dll',
+                                        'cudnn_ops_infer64_8.dll', 'cudnn_cnn_infer64_8.dll'))
+        self.assertEqual(gpu._missing_cuda_libraries(), [])
+
     def test_rocm_builds_are_not_held_to_nvidia_libraries(self):
         import unittest.mock as mock
         gpu = self._gpu_probe(loadable=())
