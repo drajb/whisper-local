@@ -38,6 +38,19 @@ def mark_first_run_complete():
 _SHUTDOWN_POLL_MS = 200
 
 
+# Closes the welcome window if the app is asked to shut down while it's open.
+# Keep this at module level. As a nested function it referred to itself to
+# reschedule, and the reference cycle kept the window's Tk interpreter alive
+# after _run_welcome() returned. The garbage collector then freed it on
+# whichever thread it happened to run on, and Tcl aborts the process when an
+# interpreter is deleted off the thread that created it (issue #18).
+def _close_on_shutdown(root, shutdown_event):
+    if shutdown_event.is_set():
+        root.quit()
+        return
+    root.after(_SHUTDOWN_POLL_MS, _close_on_shutdown, root, shutdown_event)
+
+
 # Shows the welcome window. `hotkey_label` is the user's *current* configured
 # recording hotkey, displayed in the tip text so it's accurate.
 #
@@ -162,19 +175,13 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
                 logger.debug(f"Autostart enable from welcome failed: {e}")
         root.quit()
 
-    def _watch_for_shutdown():
-        if shutdown_event.is_set():
-            root.quit()
-            return
-        root.after(_SHUTDOWN_POLL_MS, _watch_for_shutdown)
-
     tk.Button(btn_frame, text="Got it — let's dictate",
               command=_done, bg=ACCENT, fg='white', relief='flat',
               padx=22, pady=6, font=('Segoe UI', 10, 'bold')).pack(side='right')
 
     root.protocol("WM_DELETE_WINDOW", _done)
     if shutdown_event is not None:
-        root.after(_SHUTDOWN_POLL_MS, _watch_for_shutdown)
+        root.after(_SHUTDOWN_POLL_MS, _close_on_shutdown, root, shutdown_event)
 
     # Quit first, destroy after. mainloop() runs until no Tk roots are left on
     # this thread, and on macOS the platform layer keeps a hidden root alive on
