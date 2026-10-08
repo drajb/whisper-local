@@ -98,6 +98,7 @@ class AudioRecorder:
         self._capture_thread = None
         self._stream_error = None
         self._current_level = 0.0
+        self.last_recording_was_silent = False
         self._start_capture()
 
     def _setup_continuous_vad_monitoring(self):
@@ -298,7 +299,10 @@ class AudioRecorder:
 
         audio_array = np.concatenate(chunks, axis=0)
         peak = float(np.max(np.abs(audio_array))) if len(audio_array) else 0.0
-        if peak < 1e-5:
+        # Remembered so the pipeline can tell "the mic delivered nothing" (mute
+        # switch, OS permission) apart from "nothing was said".
+        self.last_recording_was_silent = peak < 1e-5
+        if self.last_recording_was_silent:
             self.logger.warning(f"Recorded audio is silent (peak={peak:.2e}) — mic may be muted or permission denied")
             print("   ⚠ Recording captured pure silence — mic muted, unplugged, or OS permission denied?")
 

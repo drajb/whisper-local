@@ -241,7 +241,7 @@ class ContinuousVoiceDetector:
                 pass
 
             if event != VadEvent.NO_EVENT:
-                threading.Thread(target=self._dispatch_event, args=(event,), daemon=True).start()
+                self._dispatch_event(event)   # already hands off to a thread
 
             return event
 

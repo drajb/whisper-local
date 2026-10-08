@@ -108,8 +108,8 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: Relevant lines from `whisperkey.log`
+      label: Relevant lines from `app.log`
       description: |
-        Find it at `%APPDATA%\whisperkey\whisperkey.log` (Windows) or `~/.whisperkey/whisperkey.log` (macOS).
+        Find it at `%APPDATA%\whisperkey\app.log` (Windows) or `~/.whisperkey/app.log` (macOS).
         Paste the last ~50 lines around when the bug occurred. Redact anything personal.
       render: shell

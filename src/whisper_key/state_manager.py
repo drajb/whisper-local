@@ -85,6 +85,12 @@ class StateManager:
         self._pending_device_change = None
         self._command_mode = False
         self._state_lock = threading.Lock()
+        # Serialises recorder start/stop against a recorder swap (device change,
+        # the default-mic watcher). Without it a hotkey press could start a
+        # recording on a recorder that is being shut down and replaced, and the
+        # matching release would then stop the new one, which never recorded.
+        # Re-entrant: a swap queued from the pipeline runs on the same thread.
+        self._recorder_lock = threading.RLock()
         self._streaming_display_active = False
         # Commit-on-endpoint streaming delivery (opt-in). Active only for the
         # current recording when conditions are met; default off → zero impact.
@@ -131,7 +137,7 @@ class StateManager:
     
     def handle_max_recording_duration_reached(self, audio_data):
         self.logger.info("Max recording duration reached - starting transcription")
-        self._transcription_pipeline(audio_data, use_auto_enter=False)
+        self._run_pipeline_async(audio_data, use_auto_enter=False)
 
     def handle_vad_event(self, event: VadEvent):
         if event == VadEvent.SILENCE_TIMEOUT:
@@ -139,8 +145,9 @@ class StateManager:
             timeout_seconds = int(self.vad_manager.vad_silence_timeout_seconds)
             self._clear_streaming_display()
             print(f"⏰ Stopping recording after {timeout_seconds} seconds of silence...")
-            audio_data = self.audio_recorder.stop_recording()
-            self._transcription_pipeline(audio_data, use_auto_enter=False)
+            with self._recorder_lock:
+                audio_data = self.audio_recorder.stop_recording()
+            self._run_pipeline_async(audio_data, use_auto_enter=False)
 
     # Called on the audio thread for each streaming result. Updates the overlay
     # preview always; when commit-on-endpoint delivery is active, hands FINALIZED
@@ -164,16 +171,16 @@ class StateManager:
             print("\r" + " " * 75 + "\r", end="", flush=True)
             self._streaming_display_active = False
     
+    # Returns as soon as the audio is captured; the transcription runs on its
+    # own thread (see _run_pipeline_async).
     def stop_recording(self, use_auto_enter: bool = False) -> bool:
-        currently_recording = self.audio_recorder.get_recording_status()
-
-        if currently_recording:
+        with self._recorder_lock:
+            if not self.audio_recorder.get_recording_status():
+                return False
             self._clear_streaming_display()
             audio_data = self.audio_recorder.stop_recording()
-            self._transcription_pipeline(audio_data, use_auto_enter)
-            return True
-        else:
-            return False
+        self._run_pipeline_async(audio_data, use_auto_enter)
+        return True
     
     def cancel_active_recording(self):
         self._clear_streaming_display()
@@ -191,7 +198,8 @@ class StateManager:
             self._rephrase_mode = False
             self._rephrase_selection = ''
         self._continuous_aborted = True
-        self.audio_recorder.cancel_recording()
+        with self._recorder_lock:
+            self.audio_recorder.cancel_recording()
         self.audio_feedback.play_cancel_sound()
         self._update_ui_state("idle")
         if self.level_overlay:
@@ -238,7 +246,7 @@ class StateManager:
         except Exception:
             self._rephrase_original_clipboard = ''
 
-        kb.send_hotkey('ctrl', 'c')
+        kb.send_copy()
         time.sleep(0.12)
         try:
             selection = pyperclip.paste()
@@ -260,7 +268,9 @@ class StateManager:
         self._rephrase_mode = True
         self._streaming_delivery_active = False  # rephrase is never live-typed
         self.streaming_delivery = None
-        if self.audio_recorder.start_recording():
+        with self._recorder_lock:
+            started = self.audio_recorder.start_recording()
+        if started:
             self.audio_feedback.play_start_sound()
             self._update_ui_state("recording")
             if self.level_overlay:
@@ -276,7 +286,8 @@ class StateManager:
         self.streaming_delivery = None
 
         self.logger.info("Starting command mode recording")
-        success = self.audio_recorder.start_recording()
+        with self._recorder_lock:
+            success = self.audio_recorder.start_recording()
         if success:
             print("\n🎤 Command mode activated! Speak a command...")
             self.config_manager.print_command_stop_instructions()
@@ -288,7 +299,8 @@ class StateManager:
     def _begin_recording(self):
         self._apply_recording_context()
         self._maybe_pause_media()
-        success = self.audio_recorder.start_recording()
+        with self._recorder_lock:
+            success = self.audio_recorder.start_recording()
 
         if success:
             # Only spin up the streaming-delivery worker once recording is
@@ -366,7 +378,8 @@ class StateManager:
 
         fg = foreground.get_foreground_app() or {}
         record_transcription(char_count=len(text), duration_seconds=duration, app=fg.get('exe', ''))
-        record_transcript(text, app=fg.get('exe', ''), duration_s=duration)
+        record_transcript(text, app=fg.get('exe', ''), duration_s=duration,
+                          retention_days=self._history_retention_days())
         audit_enabled = (self.config_manager.config.get('audit') or {}).get('enabled', False)
         audit_record('delivered', text, fg.get('exe', ''), audit_enabled)
 
@@ -443,7 +456,7 @@ class StateManager:
             import pyperclip
             from .platform import keyboard as kb
             original = pyperclip.paste()
-            kb.send_hotkey('ctrl', 'c')
+            kb.send_copy()
             time.sleep(0.08)
             selection = pyperclip.paste()
             try: pyperclip.copy(original)
@@ -476,6 +489,20 @@ class StateManager:
             f"Copied, not pasted — your app rule for {where} is copy-only. "
             "Press Ctrl+V, or edit app_rules.yaml to change it.")
         self.logger.info(f"Copy-only delivery for {where} (app rule)")
+
+    # Every transcription runs on a thread of its own. The callers are the hotkey
+    # backend (on Windows, global-hotkeys calls back from its 20 ms polling
+    # thread, so a transcription run inline there left every hotkey dead for
+    # its whole duration), the VAD dispatcher and the capture loop, none of
+    # which may block. `is_processing` is raised here, before the thread even
+    # starts, so can_start_recording() is false from the moment the key is
+    # released rather than from whenever the new thread gets scheduled.
+    def _run_pipeline_async(self, audio_data, use_auto_enter: bool = False):
+        with self._state_lock:
+            self.is_processing = True
+        threading.Thread(target=self._transcription_pipeline,
+                         args=(audio_data, use_auto_enter),
+                         daemon=True, name='transcription').start()
 
     # The heart of the app: everything between "user released the hotkey" and
     # "text is in their editor". Runs on a worker thread so the hotkey listener
@@ -524,9 +551,21 @@ class StateManager:
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
 
             if not transcribed_text:
-                self.system_tray.notify("Transcription was empty (silence or noise only).")
-                if self.level_overlay:
-                    self.level_overlay.flash_failure("No speech detected")
+                # Say which of the two very different problems it was: a mic
+                # that delivered nothing at all is a mute switch or an OS
+                # permission, and "no speech" sends people looking elsewhere.
+                if getattr(self.audio_recorder, 'last_recording_was_silent', False):
+                    where = ("Windows lets desktop apps use it (Settings > Privacy > Microphone)"
+                             if platform.system() == 'Windows' else
+                             "it is allowed under System Settings > Privacy & Security > Microphone")
+                    self.system_tray.notify(
+                        f"No sound reached the microphone. Check it isn't muted, and that {where}.")
+                    if self.level_overlay:
+                        self.level_overlay.flash_failure("Mic is silent")
+                else:
+                    self.system_tray.notify("Transcription was empty (silence or noise only).")
+                    if self.level_overlay:
+                        self.level_overlay.flash_failure("No speech detected")
                 return
 
             if command_mode:
@@ -650,7 +689,8 @@ class StateManager:
                     duration_seconds=duration,
                     app=fg.get('exe', ''),
                 )
-                record_transcript(transcribed_text, app=fg.get('exe', ''), duration_s=duration)
+                record_transcript(transcribed_text, app=fg.get('exe', ''), duration_s=duration,
+                                  retention_days=self._history_retention_days())
                 audit_enabled = (self.config_manager.config.get('audit') or {}).get('enabled', False)
                 audit_record('delivered', transcribed_text, fg.get('exe', ''), audit_enabled)
                 self._maybe_restart_continuous()
@@ -658,7 +698,9 @@ class StateManager:
                 self.level_overlay.flash_failure()
             
         except Exception as e:
-            self.logger.error(f"Error in processing workflow: {e}")
+            # With the traceback: a one-line message here is what every bug
+            # report quotes, and without the stack it says nothing about where.
+            self.logger.error(f"Error in processing workflow: {e}", exc_info=True)
             print(f"❌ Error processing recording: {e}")
             if self.level_overlay:
                 self.level_overlay.flash_failure()
@@ -695,6 +737,12 @@ class StateManager:
 
             if not (pending_device or pending_model):
                 self._update_ui_state("idle")
+
+    # history.retention_days: None keeps everything, 0 stores nothing, N keeps
+    # N days. Read per delivery, so a change applies without a restart.
+    def _history_retention_days(self):
+        history = self.config_manager.config.get('history')
+        return history.get('retention_days') if isinstance(history, dict) else None
 
     def _handle_command_transcription(self, text: str, use_auto_enter: bool = False) -> bool:
         log_config = self.config_manager.get_logging_config()
@@ -873,7 +921,7 @@ class StateManager:
         try:
             pyperclip.copy(polished)
             time.sleep(0.05)
-            kb.send_hotkey('ctrl', 'v')
+            kb.send_paste()
             time.sleep(0.2)
         finally:
             try:
@@ -961,6 +1009,15 @@ class StateManager:
 
     def set_hotkey_listener(self, listener):
         self._hotkey_listener_ref = listener
+
+    def is_hotkeys_paused(self) -> bool:
+        return bool(self.is_paused)
+
+    # The tray's "Pause hotkeys" item. Routed through the listener so the tray
+    # and the pause hotkey can never disagree about the state.
+    def toggle_hotkeys_paused(self):
+        if self._hotkey_listener_ref:
+            self._hotkey_listener_ref.toggle_pause()
 
     def list_profiles(self) -> list:
         return self.profile_manager.list_profiles()
@@ -1187,9 +1244,10 @@ class StateManager:
             )
 
             # Close the old stream, otherwise it keeps capturing in the background.
-            old_recorder = self.audio_recorder
-            self.audio_recorder = new_recorder
-            old_recorder.shutdown()
+            with self._recorder_lock:
+                old_recorder = self.audio_recorder
+                self.audio_recorder = new_recorder
+                old_recorder.shutdown()
 
             print(f"✅ Successfully switched audio device to: {device_name}")
 
@@ -1206,8 +1264,11 @@ class StateManager:
     DEFAULT_INPUT_POLL_SECONDS = 2.0
 
     def _start_default_input_watcher(self):
-        if audio_endpoints.get_default_input_id() is None:
-            return  # platform without support, or no mic at all right now
+        # Started whenever the platform can report the default mic, even with
+        # none connected yet: a laptop opened undocked should still pick up the
+        # dock's microphone when it arrives.
+        if not audio_endpoints.is_supported():
+            return
         threading.Thread(target=self._watch_default_input, daemon=True,
                          name="default-input-watcher").start()
 
@@ -1227,7 +1288,11 @@ class StateManager:
         if self.config_manager.get_setting('audio', 'input_device') != 'default':
             return known_input_id
         current_input_id = audio_endpoints.get_default_input_id()
-        default_changed = current_input_id is not None and current_input_id != known_input_id
+        if current_input_id is None:
+            # No microphone at all right now (unplugged, or none yet). There is
+            # nothing to rebind to, so wait rather than log a failure every tick.
+            return known_input_id
+        default_changed = current_input_id != known_input_id
         if not default_changed and self.audio_recorder.is_capturing():
             return known_input_id
         # Never swap the mic mid-recording or mid-transcription; retry next tick.
@@ -1238,19 +1303,23 @@ class StateManager:
 
     def _rebind_to_default_input(self):
         # PortAudio enumerates devices only at init: close our stream, re-init
-        # it, then pick the host's now-current default input.
-        self.audio_recorder.shutdown()
-        sd._terminate()
-        sd._initialize()
+        # it, then pick the host's now-current default input. Under the recorder
+        # lock, so no recording can start against a stream that is being torn
+        # down, and no stream is open while PortAudio is re-initialised.
+        with self._recorder_lock:
+            self.audio_recorder.shutdown()
+            sd._terminate()
+            sd._initialize()
 
-        device_id = self._get_default_device_for_host(self._current_audio_host)
-        if device_id is None:
-            self.logger.warning("Default input changed, but no input device is available")
-            return
+            device_id = self._get_default_device_for_host(self._current_audio_host)
+            if device_id is None:
+                self.logger.warning("Default input changed, but no input device is available")
+                return
 
-        device_name = self._get_device_name(device_id)
-        self.logger.info(f"Default input changed, following it to: {device_name}")
-        self._execute_audio_device_change(device_id, device_name)
+            device_name = self._get_device_name(device_id)
+            self.logger.info(f"Default input changed, following it to: {device_name}")
+            self._execute_audio_device_change(device_id, device_name)
+        # Tray calls stay outside the lock: the menu rebuild reads state.
         self.system_tray.notify(f"Microphone: {device_name}")
         self.system_tray.refresh_menu()
 

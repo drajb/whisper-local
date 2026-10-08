@@ -314,6 +314,13 @@ class SystemTray:
                     self._toggle_autostart,
                     checked=lambda item: autostart.is_enabled(),
                 ))
+            # The pause hotkey's mouse equivalent, for a call or a game where
+            # the chord is needed by something else and nobody remembers the key.
+            menu_items.append(pystray.MenuItem(
+                "Pause hotkeys",
+                self._toggle_pause,
+                checked=lambda item: self.state_manager.is_hotkeys_paused(),
+            ))
             menu_items += [
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Add word to dictionary...", self._open_add_word_dialog),
@@ -335,7 +342,7 @@ class SystemTray:
                     pystray.Menu(*audio_host_items)
                 ) if audio_host_items else None,
                 pystray.MenuItem(
-                    "Audio Source",
+                    "Microphone",
                     pystray.Menu(*audio_device_items)
                 ),
                 pystray.Menu.SEPARATOR,
@@ -518,10 +525,17 @@ class SystemTray:
         self._run_module_in_window('--stats')
 
     def _open_settings_window(self, icon=None, item=None):
-        self._run_module_in_window('--settings')
+        self._run_module_in_window('--settings', windowless=True)
 
     def _open_history_window(self, icon=None, item=None):
-        self._run_module_in_window('--history')
+        self._run_module_in_window('--history', windowless=True)
+
+    def _toggle_pause(self, icon=None, item=None):
+        try:
+            self.state_manager.toggle_hotkeys_paused()
+            self._set_menu()
+        except Exception as e:
+            self.logger.error(f"Failed to toggle pause: {e}")
 
     def _toggle_autostart(self, icon=None, item=None):
         try:
@@ -590,14 +604,22 @@ class SystemTray:
         except Exception as e:
             self.logger.error(f"Failed to reload transforms: {e}")
 
-    def _run_module_in_window(self, flag: str):
+    # Console tools (--doctor, --stats) get a console of their own to print in.
+    # Tk windows (--settings, --history) get none: a black console popping up
+    # behind the Settings window is the single most-asked "is this broken?"
+    # about the tray. The command comes from build_relaunch_command, so a pip
+    # install, a venv and the standalone .exe all relaunch the right thing.
+    def _run_module_in_window(self, flag: str, windowless: bool = False):
         import subprocess
-        import sys
+        from .utils import build_relaunch_command
         try:
-            subprocess.Popen(
-                [sys.executable, '-m', 'whisper_key.main', flag],
-                creationflags=getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
-            )
+            if windowless:
+                command = build_relaunch_command(windowless=True) + [flag]
+                creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            else:
+                command = build_relaunch_command() + [flag]
+                creation_flags = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
+            subprocess.Popen(command, creationflags=creation_flags)
         except Exception as e:
             self.logger.error(f"Failed to launch {flag}: {e}")
     

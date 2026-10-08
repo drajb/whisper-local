@@ -28,22 +28,13 @@ import threading
 
 from .platform import app, permissions, console
 from .config_manager import ConfigManager
-from .audio_recorder import AudioRecorder
-from .hotkey_listener import HotkeyListener
-from .whisper_engine import WhisperEngine
-from .voice_activity_detection import VadManager
-from .clipboard_manager import ClipboardManager
-from .state_manager import StateManager
-from .system_tray import SystemTray
-from .audio_feedback import AudioFeedback
 from .terminal_title import TerminalTitle
 from .instance_manager import cleanup_pid_file, guard_against_multiple_instances
-from .model_registry import ModelRegistry
-from .streaming_manager import StreamingManager
-from .voice_commands import VoiceCommandManager
-from .hardware_detection import detect_and_print as detect_hardware
-from .onboarding import check_gpu
 from .utils import get_user_app_data_path, get_version
+# The audio, model, tray and hotkey stacks are imported inside the functions
+# that build them, not here. Most --flags never need them, and the model stack
+# (faster_whisper, ctranslate2) is the slowest import in the app, so --version,
+# --settings and the windows the tray opens must not wait for it.
 
 def setup_logging(config_manager: ConfigManager):
     log_config = config_manager.get_logging_config()
@@ -135,6 +126,7 @@ def _write_crash_report(exc_type, exc_value, exc_traceback):
         pass
 
 def setup_audio_recorder(audio_config, state_manager, vad_manager, streaming_manager):
+    from .audio_recorder import AudioRecorder
     return AudioRecorder(
         channels=audio_config['channels'],
         dtype=audio_config['dtype'],
@@ -150,6 +142,7 @@ def setup_audio_recorder(audio_config, state_manager, vad_manager, streaming_man
     )
 
 def setup_vad(vad_config):
+    from .voice_activity_detection import VadManager
     return VadManager(
         vad_precheck_enabled=vad_config['vad_precheck_enabled'],
         vad_realtime_enabled=vad_config['vad_realtime_enabled'],
@@ -160,6 +153,7 @@ def setup_vad(vad_config):
     )
 
 def setup_streaming(streaming_config, model_registry):
+    from .streaming_manager import StreamingManager
     return StreamingManager(
         streaming_enabled=streaming_config.get('streaming_enabled', False),
         streaming_model=streaming_config.get('streaming_model', 'standard'),
@@ -167,6 +161,7 @@ def setup_streaming(streaming_config, model_registry):
     )
 
 def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transcriptions=False, config_manager=None):
+    from .whisper_engine import WhisperEngine
     backend = whisper_config.get('backend', 'faster_whisper')
 
     if backend == 'whisper_cpp':
@@ -205,6 +200,7 @@ def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transc
         return _handle_gpu_failure(e, whisper_config, vad_manager, model_registry, log_transcriptions, config_manager)
 
 def setup_clipboard_manager(clipboard_config):
+    from .clipboard_manager import ClipboardManager
     return ClipboardManager(
         auto_paste=clipboard_config['auto_paste'],
         delivery_method=clipboard_config['delivery_method'],
@@ -219,6 +215,7 @@ def setup_clipboard_manager(clipboard_config):
     )
 
 def setup_audio_feedback(audio_feedback_config):
+    from .audio_feedback import AudioFeedback
     return AudioFeedback(
         enabled=audio_feedback_config['enabled'],
         transcription_complete_enabled=audio_feedback_config['transcription_complete_enabled'],
@@ -231,6 +228,7 @@ def setup_audio_feedback(audio_feedback_config):
     )
 
 def setup_voice_commands(voice_commands_config, clipboard_manager, log_transcriptions=False, config_manager=None):
+    from .voice_commands import VoiceCommandManager
     provider = None
     if config_manager is not None:
         provider = lambda: (config_manager.get_postprocess_config().get('ollama') or {})
@@ -242,6 +240,7 @@ def setup_voice_commands(voice_commands_config, clipboard_manager, log_transcrip
     )
 
 def setup_system_tray(tray_config, config_manager, state_manager, model_registry, console_config=None):
+    from .system_tray import SystemTray
     return SystemTray(
         state_manager=state_manager,
         tray_config=tray_config,
@@ -263,6 +262,8 @@ def run_gpu_onboarding(config_manager, whisper_config):
     if sys.stdin is None:
         logging.getLogger(__name__).info("Skipping GPU onboarding prompt (no console); deferring to next launch")
         return whisper_config
+    from .hardware_detection import detect_and_print as detect_hardware
+    from .onboarding import check_gpu
     gpu_class, gpu_name, ct2_works = detect_hardware(whisper_config['device'])
     check_gpu(gpu_class, gpu_name, ct2_works, whisper_config['device'], config_manager)
     return config_manager.get_whisper_config()
@@ -284,6 +285,7 @@ def setup_signal_handlers(shutdown_event):
     signal.signal(signal.SIGTERM, signal_handler)
 
 def setup_hotkey_listener(hotkey_config, state_manager, voice_commands_enabled=True):
+    from .hotkey_listener import HotkeyListener
     return HotkeyListener(
         state_manager=state_manager,
         recording_hotkey=hotkey_config['recording_hotkey'],
@@ -308,7 +310,7 @@ def _int_setting(value, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
-def shutdown_app(hotkey_listener: HotkeyListener, state_manager: StateManager, logger: logging.Logger):
+def shutdown_app(hotkey_listener, state_manager, logger: logging.Logger):
     try:
         if hotkey_listener and hotkey_listener.is_active():
             logger.info("Stopping hotkey listener...")
@@ -558,6 +560,8 @@ def main():
 
         whisper_config = run_gpu_onboarding(config_manager, whisper_config)
 
+        from .model_registry import ModelRegistry
+        from .state_manager import StateManager
         model_registry = ModelRegistry(
             whisper_models_config=whisper_config.get('models', {}),
             streaming_models_config=streaming_config.get('models', {})
@@ -665,11 +669,14 @@ def main():
         app.run_event_loop(shutdown_event)
             
     except KeyboardInterrupt:
-        logger.info("Application shutting down...")
+        logging.getLogger(__name__).info("Application shutting down...")
         print("\nShutting down application...")
-        
+
     except Exception as e:
-        logger.error(f"Unexpected error: {e}", exc_info=True)
+        # Not `logger`: it is still None if ConfigManager() itself raised (a
+        # typo in user_settings.yaml), and the user would see an AttributeError
+        # about NoneType instead of what is wrong with their file.
+        logging.getLogger(__name__).error(f"Unexpected error: {e}", exc_info=True)
         print(f"Error occurred: {e}")
         
     finally:

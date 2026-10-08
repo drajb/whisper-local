@@ -82,6 +82,32 @@ def resolve_asset_path(relative_path: str) -> str:
 
     return str(Path(__file__).parent / relative_path)
 
+# Import ctranslate2 without its optional converter back-ends. Its package
+# __init__ eagerly imports `torch` and `transformers` whenever they happen to be
+# installed, guarded only by `except ImportError`, and that costs 25-50 s on a
+# machine that has them (measured: 50.3 s cold, 2.7 s with both blocked). This
+# app never uses either, so they are made to look absent for exactly the
+# duration of the import: a None entry in sys.modules is what `import x`
+# turns into ImportError. The sentinels are removed afterwards, so anything
+# that genuinely wants torch later (an optional noise-suppression back-end)
+# still gets it. A process that already loaded them is left alone.
+def import_ctranslate2_without_optional_backends():
+    import sys
+    if 'ctranslate2' in sys.modules:
+        return
+    blocked = [name for name in ('torch', 'transformers') if name not in sys.modules]
+    for name in blocked:
+        sys.modules[name] = None
+    try:
+        import ctranslate2  # noqa: F401
+    except Exception:
+        pass  # the real import below reports the real error
+    finally:
+        for name in blocked:
+            if sys.modules.get(name, 'absent') is None:
+                del sys.modules[name]
+
+
 def setup_portaudio_path():
     # Called first in main.py - platform module imports break WASAPI
     if sys.platform != 'win32':

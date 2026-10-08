@@ -108,6 +108,16 @@ def send_hotkey(*keys: str):
         CGEventPost(kCGHIDEventTap, event)
 
 
+# Command, not Control: the one chord difference every cross-platform caller
+# gets wrong. Windows mirror: same names, sending Ctrl.
+def send_copy():
+    send_hotkey('cmd', 'c')
+
+
+def send_paste():
+    send_hotkey('cmd', 'v')
+
+
 def type_text(text: str):
     pass  # SendInput method not used in macOS
 

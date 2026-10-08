@@ -22,7 +22,7 @@ pip install -e .
 python -m unittest tests.test_smoke
 ```
 
-All smoke tests should pass (40 at time of writing). CI runs the same suite on every push.
+All smoke tests should pass (about 300 at time of writing). CI runs the same suite on Windows, macOS and Linux on every push.
 
 To run the app from source while developing:
 
@@ -38,7 +38,7 @@ Use the [Bug report template](https://github.com/drajb/whisper-local/issues/new?
 
 1. What you expected to happen
 2. What actually happened
-3. The relevant section of `%APPDATA%\whisperkey\whisperkey.log`
+3. The relevant section of `%APPDATA%\whisperkey\app.log`
 4. Output from `whisper-local --doctor`
 5. Your OS, Python version, and Whisper backend
 
@@ -51,6 +51,8 @@ Use the [Feature request template](https://github.com/drajb/whisper-local/issues
 **Do not open a public issue for security problems.** See [`SECURITY.md`](SECURITY.md) for the private disclosure process.
 
 ## Pull request process
+
+**Pull requests from forks are open to everyone.** Nothing here is limited to collaborators: no interaction limits, no rulesets, no branch protection. Several contributors have read "PRs are collaborators-only" in older issues and sent fixes as issues instead; that note dates from when this repo was itself a fork and is no longer true. If `gh pr create` tells you that you lack permission, it is your token: a fine-grained personal access token cannot open a PR against a repository you don't own. Use `gh auth login` with the browser flow, a classic token with the `public_repo` scope, or the "Compare & pull request" button on github.com.
 
 1. Fork the repo and create a feature branch from `master`
 2. Make your change, keeping commits small and descriptive

@@ -135,6 +135,18 @@ def send_hotkey(*keys: str):
     _send(down + up)
 
 
+# The platform's own copy and paste chords, for callers that must not hardcode
+# one: Ctrl here, Command on macOS. A caller that sent 'ctrl'+'c' on a Mac
+# pressed Control-C, which copies nothing, so rephrase and selection-seeding
+# silently did nothing there. macOS mirror: same names.
+def send_copy():
+    send_hotkey('ctrl', 'c')
+
+
+def send_paste():
+    send_hotkey('ctrl', 'v')
+
+
 def type_text(text: str):
     inputs = []
     for char in text:

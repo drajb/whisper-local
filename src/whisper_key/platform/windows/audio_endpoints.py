@@ -46,6 +46,13 @@ def _release(com_object):
     _method(com_object, _RELEASE)(com_object)
 
 
+# Whether this platform can report the default microphone at all. The watcher
+# in state_manager starts when this is True, even if no microphone is connected
+# at launch, so a dock plugged in later is still picked up.
+def is_supported() -> bool:
+    return True
+
+
 # Endpoint ID string of the default microphone, or None when there is no
 # microphone at all or Core Audio is unreachable.
 def get_default_input_id() -> Optional[str]:

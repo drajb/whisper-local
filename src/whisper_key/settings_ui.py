@@ -432,6 +432,12 @@ def _build_general_tab(nb, cm, vars_, row_index):
     _check(tab, 'audio.continuous_mode',
            'Continuous dictation mode (auto-restarts recording)', v, row_index)
 
+    v = tk.StringVar(value=str(_v(cfg, 'history', 'retention_days', default='')))
+    vars_['history.retention_days'] = v
+    _row(tab, 'history.retention_days', 'Keep history for (days)',
+         lambda p: _entry(p, v), row_index,
+         note='Blank keeps the newest 2000 dictations. 0 stores none. 7 keeps a week.')
+
 
 def _build_audio_tab(nb, cm, vars_, row_index):
     import tkinter as tk
@@ -523,6 +529,19 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
     cfg = cm.config
     pp = cfg.get('postprocess') or {}
 
+    # One knob for the cleanup toggles. The individual toggles (fillers,
+    # stutters, voice editing, backtrack, smart times/emails/URLs) are deliberately
+    # not listed here: a checkbox writes true/false, which would pin the toggle
+    # and quietly stop the level from applying to it. The settings file keeps
+    # them for anyone who wants that.
+    from .text_postprocess import CLEANUP_LEVELS, DEFAULT_CLEANUP
+    v = tk.StringVar(value=str(pp.get('cleanup') or DEFAULT_CLEANUP))
+    vars_['postprocess.cleanup'] = v
+    _row(tab, 'postprocess.cleanup', 'Cleanup',
+         lambda p: _combo(p, v, list(CLEANUP_LEVELS)), row_index,
+         note='none: as heard · light: stutters and "um" · medium: + "scratch that", '
+              '"at 2, actually 3" · high: + spoken times, emails, web addresses')
+
     from .styles import available_styles
     style_names = [_NO_STYLE] + sorted(available_styles(pp))
     v = tk.StringVar(value=str(pp.get('style') or _NO_STYLE))
@@ -533,7 +552,6 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
               'Per-app styles live in app_rules.yaml.')
 
     checks = [
-        ('postprocess.strip_filler_words', 'Strip filler words  (um, uh, like, you know)', 'strip_filler_words'),
         ('postprocess.capitalize_first', 'Capitalize first letter', 'capitalize_first'),
         ('postprocess.ensure_punctuation', 'Ensure sentence ends with punctuation', 'ensure_punctuation'),
         ('postprocess.strip_trailing_period', 'Strip trailing period', 'strip_trailing_period'),
@@ -542,10 +560,6 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
          'Absorb Whisper punctuation around spoken cues  (fixes "hello,, world")', 'inline_formatting_absorb_punctuation'),
         ('postprocess.inline_formatting_extend',
          'Keep English cue words when adding your own', 'inline_formatting_extend'),
-        ('postprocess.voice_editing',
-         'Voice editing  (say "scratch that" to erase the last sentence)', 'voice_editing'),
-        ('postprocess.remove_repeated_words',
-         'Remove stutters  ("I I think" → "I think")', 'remove_repeated_words'),
         ('postprocess.list_formatting',
          'Spoken lists  ("first … second …" → numbered list)', 'list_formatting'),
     ]
@@ -554,29 +568,11 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
         vars_[path] = v
         _check(tab, path, label, v, row_index)
 
-    # Smart-formatting sub-toggles live under a nested dict; surface them here too.
-    sf = pp.get('smart_formatting') or {}
-    smart_checks = [
-        ('postprocess.smart_formatting.times', 'Smart times  ("3 p.m." → "3 PM")', 'times'),
-        ('postprocess.smart_formatting.emails', 'Smart emails  ("john at x dot com" → "john@x.com")', 'emails'),
-        ('postprocess.smart_formatting.urls', 'Smart URLs  ("example dot com" → "example.com")', 'urls'),
-    ]
-    for path, label, cfg_key in smart_checks:
-        v = tk.BooleanVar(value=bool(sf.get(cfg_key, False)))
-        vars_[path] = v
-        _check(tab, path, label, v, row_index)
-
-    bt = pp.get('backtrack')
-    bt = bt if isinstance(bt, dict) else {}
-    v = tk.BooleanVar(value=bool(bt.get('enabled', False)))
-    vars_['postprocess.backtrack.enabled'] = v
-    _check(tab, 'postprocess.backtrack.enabled',
-           'Backtrack  ("at 2, actually 3" → "at 3")', v, row_index)
-
     _footnote(tab, 'Snippets (spoken shortcuts like "my signature") live under snippets '
-                   'in the settings file. '
+                   'in the settings file, and so do the individual cleanup toggles if you '
+                   'want one on or off regardless of the level. '
                    'Custom phrase→symbol mappings (for other languages) live under '
-                   'inline_formatting_replacements in the settings file; misrecognition '
+                   'inline_formatting_replacements; misrecognition '
                    'fixes go under replacements (or use the history window\'s "Fix this '
                    'everywhere...").')
 
@@ -649,6 +645,7 @@ _NUMERIC_PATHS = {
     'postprocess.ollama.timeout',
     'audio.whisper_mode.max_gain',
     'hotkey.double_tap_window_ms',
+    'history.retention_days',
 }
 
 # Shown in the style picker for "no style: use the individual toggles".
@@ -664,6 +661,9 @@ def _coerce(var, raw, path):
         return bool(raw)
     if path == 'postprocess.style' and raw == _NO_STYLE:
         return ''
+    # A blank retention is "keep", which the config spells as null, not "".
+    if path == 'history.retention_days' and str(raw).strip() == '':
+        return None
     if path in _NUMERIC_PATHS:
         try:
             return int(raw)

@@ -12,7 +12,11 @@ import threading
 from typing import Optional, Callable
 
 import numpy as np
-from faster_whisper import WhisperModel
+
+from .utils import import_ctranslate2_without_optional_backends
+# Before faster_whisper, which imports ctranslate2: see the helper for why.
+import_ctranslate2_without_optional_backends()
+from faster_whisper import WhisperModel  # noqa: E402
 
 # Approximate on-disk download sizes for the standard Whisper models, shown in
 # the first-run download message so the wait is expected, not mysterious. Keyed

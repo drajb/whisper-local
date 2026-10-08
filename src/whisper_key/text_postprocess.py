@@ -54,6 +54,65 @@ def _on(value) -> bool:
     return value is True or (isinstance(value, int) and not isinstance(value, bool) and value != 0)
 
 
+# =============================================================================
+# Cleanup levels
+# =============================================================================
+
+# `postprocess.cleanup` is one setting over the cleanup toggles, the way a style
+# is one setting over the shaping toggles. Each level is a bundle of what the
+# next one adds to; a toggle the user sets explicitly (true/false rather than
+# null in their file) always wins over its level.
+CLEANUP_LEVELS = {
+    'none': {},
+    'light': {'remove_repeated_words': True, 'strip_filler_words': True},
+    'medium': {'remove_repeated_words': True, 'strip_filler_words': True,
+               'voice_editing': True, 'backtrack': True},
+    'high': {'remove_repeated_words': True, 'strip_filler_words': True,
+             'voice_editing': True, 'backtrack': True,
+             'smart_formatting': True},
+}
+DEFAULT_CLEANUP = 'light'
+
+# Unknown level names already reported, so a typo is logged once.
+_warned_cleanup = set()
+
+
+# Fill in every cleanup toggle the user left as null from the level. The two
+# nested sections (backtrack.enabled, smart_formatting.*) keep the rest of
+# their mapping, so custom backtrack cues survive whichever level is chosen.
+def resolve_cleanup(config: dict) -> dict:
+    name = config.get('cleanup')
+    if name is None:
+        return config
+    key = str(name).strip().lower()
+    if key not in CLEANUP_LEVELS:
+        if key not in _warned_cleanup:
+            _warned_cleanup.add(key)
+            logger.warning(f"Unknown cleanup level '{name}' — known levels: "
+                           f"{', '.join(CLEANUP_LEVELS)}; using '{DEFAULT_CLEANUP}'")
+        key = DEFAULT_CLEANUP
+    level = CLEANUP_LEVELS[key]
+    resolved = dict(config)
+
+    for toggle in ('remove_repeated_words', 'strip_filler_words', 'voice_editing'):
+        if resolved.get(toggle) is None:
+            resolved[toggle] = level.get(toggle, False)
+
+    backtrack = resolved.get('backtrack')
+    backtrack = dict(backtrack) if isinstance(backtrack, dict) else {}
+    if backtrack.get('enabled') is None:
+        backtrack['enabled'] = level.get('backtrack', False)
+    resolved['backtrack'] = backtrack
+
+    smart = resolved.get('smart_formatting')
+    smart = dict(smart) if isinstance(smart, dict) else {}
+    for sub in ('times', 'emails', 'urls'):
+        if smart.get(sub) is None:
+            smart[sub] = level.get('smart_formatting', False)
+    resolved['smart_formatting'] = smart
+    return resolved
+
+
 def postprocess(text: str, config: dict) -> str:
     if not text or not config:
         return text
@@ -63,6 +122,9 @@ def postprocess(text: str, config: dict) -> str:
     # and drops the key; this covers every other caller.
     if config.get('style'):
         config = {**config, **resolve_style(config['style'], config)}
+
+    # Likewise a cleanup level stands for a set of the cleanup toggles.
+    config = resolve_cleanup(config)
 
     # Spoken editing commands ("scratch that") operate on the raw dictation flow,
     # so they run first — before any symbol/format rewriting.
@@ -444,9 +506,14 @@ def _apply_replacements(text: str, items: list) -> str:
 # paragraph, and any surviving \n\n was then collapsed to a single space by
 # the \s{2,} pass (issue #9). Structural whitespace is someone else's output,
 # and this filter has no business rewriting it.
+#
+# Only sounds that are never words: "like" and "you know" used to be on this
+# list, and they are real words far more often than fillers, so "I like it"
+# came out as "I it". With the light cleanup level on by default, the list
+# has to be safe to run on everyone's prose.
 def _strip_fillers(text: str) -> str:
     pattern = re.compile(
-        r'\b(um|uh|erm|uhm|like|you know)\b[,]?[ \t]*',
+        r'\b(um|uh|erm|uhm|hmm)\b[,]?[ \t]*',
         flags=re.IGNORECASE,
     )
     cleaned = pattern.sub('', text)

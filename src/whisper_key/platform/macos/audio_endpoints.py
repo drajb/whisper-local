@@ -5,5 +5,9 @@
 from typing import Optional
 
 
+def is_supported() -> bool:
+    return False
+
+
 def get_default_input_id() -> Optional[str]:
     return None

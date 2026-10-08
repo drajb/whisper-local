@@ -8,7 +8,10 @@ import logging
 import os
 from typing import Optional
 
-from faster_whisper.utils import _MODELS
+from .utils import import_ctranslate2_without_optional_backends
+# Before faster_whisper, which imports ctranslate2: see the helper for why.
+import_ctranslate2_without_optional_backends()
+from faster_whisper.utils import _MODELS  # noqa: E402
 
 
 class ModelRegistry:

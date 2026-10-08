@@ -102,7 +102,7 @@ class ClipboardManager:
 
         if success:
             print("   ✓ Copied to clipboard")
-            print("   ✓ You can now paste with Ctrl+V in any application!")
+            print(f"   ✓ You can now paste with {self.paste_hotkey.upper()} in any application!")
 
         return success
 
@@ -140,7 +140,10 @@ class ClipboardManager:
 
             print("   ✓ Auto-pasted via key simulation")
 
-            if original_content is not None:
+            # Only text can be read back through pyperclip: an image or a copied
+            # file comes back as '', and "restoring" that would wipe it. Leaving
+            # the transcript on the clipboard is the lesser harm in that case.
+            if original_content:
                 time.sleep(self.paste_clipboard_restore_delay)
                 pyperclip.copy(original_content)
 

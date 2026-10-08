@@ -440,6 +440,15 @@ overlay: # Floating speech-level overlay (Wispr-style bottom-center bar)
     click_through: true
 
 postprocess: # Transcription post-processing pipeline
+    # How much to tidy what you said before it is typed. One setting that
+    # covers the cleanup toggles marked "follows cleanup" further down; any of
+    # those you set yourself (true/false instead of null) wins over the level.
+    #   none   - type exactly what Whisper heard
+    #   light  - drop stutters ("I I think") and "um" / "uh"            (default)
+    #   medium - light, plus "scratch that" and "at 2, actually 3"
+    #   high   - medium, plus spoken times, emails and web addresses
+    cleanup: light
+
     # Inline voice formatting: say "comma", "period", "new line", "new paragraph",
     # "question mark", "exclamation mark", "colon", "semicolon", "open quote",
     # "close quote", "open paren", "close paren", "dash", "hyphen"
@@ -482,8 +491,8 @@ postprocess: # Transcription post-processing pipeline
     # Spoken editing commands. When on, say "scratch that" (or "delete that" /
     # "strike that") to erase what you just said back to the start of the current
     # sentence — e.g. "book the flight, scratch that, cancel it" → "cancel it".
-    # Deterministic and offline. Off by default.
-    voice_editing: false
+    # Deterministic and offline. null = follows `cleanup` (on from medium).
+    voice_editing: null
 
     # Deterministic smart formatting — turns spoken forms into typed symbols,
     # offline, with no LLM. Each toggle is independent and OFF by default because
@@ -495,10 +504,11 @@ postprocess: # Transcription post-processing pipeline
     # aggressive by design: prose of the same shape is rewritten too — "we met at
     # google dot com" → "we met@google.com", "the dot com era" → "the.com era".
     # Enable only if you actually dictate addresses; leave off for plain prose.
+    # null = follows `cleanup` (all three on at high).
     smart_formatting:
-        times: false
-        emails: false
-        urls: false
+        times: null
+        emails: null
+        urls: null
 
     # Post-transcription corrections: literal, whole-word, case-insensitive text
     # fixes applied after Whisper and before any Ollama step. Use this for
@@ -552,13 +562,15 @@ postprocess: # Transcription post-processing pipeline
     # It acts only when a cue is followed by a number, time, weekday or month
     # that replaces an earlier one in the same sentence, so everyday prose like
     # "I actually like it" is never changed. Deterministic and offline.
+    # enabled: null = follows `cleanup` (on from medium).
     backtrack:
-        enabled: false
+        enabled: null
         cues: [actually, i mean, no wait, wait no, sorry, make that, or rather, correction]
 
     # Remove stutters and restarts: "I I think" → "I think". Genuine doubles
     # ("had had", "that that") and emphasis ("very very") are kept.
-    remove_repeated_words: false
+    # null = follows `cleanup` (on from light).
+    remove_repeated_words: null
 
     # Spoken lists: "first, milk. second, eggs. third, bread" becomes a list on
     # separate lines. Fires only on markers counting up from one (first/second,
@@ -587,8 +599,8 @@ postprocess: # Transcription post-processing pipeline
     #     mode: alone
     snippets: []
 
-    # Strip "um", "uh", "like", "you know" filler words
-    strip_filler_words: false
+    # Strip "um", "uh", "erm", "hmm". null = follows `cleanup` (on from light).
+    strip_filler_words: null
 
     # Whisper often appends a period to the final segment even when you
     # didn't actually end with a full stop. Toggle to remove it.
@@ -611,6 +623,14 @@ postprocess: # Transcription post-processing pipeline
             Polish this dictation. Fix punctuation and capitalization only. Do not change wording or add anything. Output ONLY the polished text:
 
             {text}
+
+history: # Transcript history (the --history window and the tray's Recent list)
+    # How long to keep the text of past dictations on this machine, in days.
+    #   null = keep them (the newest 2000)
+    #   0    = don't store them at all; the history window stays empty
+    #   7    = drop anything older than a week, and so on
+    # Usage stats (counts and durations, never text) are kept regardless.
+    retention_days: null
 
 update_check: # Opt-in update notifications
     # When enabled, once per day Whisper Local checks the GitHub releases API

@@ -271,6 +271,11 @@ class HotkeyListener:
             print("\n▶  Whisper Local hotkeys RESUMED.")
         self.state_manager.set_paused(self.is_paused)
 
+    # The tray's "Pause hotkeys" item: the same path as the pause hotkey, so
+    # both surfaces always agree.
+    def toggle_pause(self):
+        self._pause_hotkey_pressed()
+
     def _arm_keys_on_release(self):
         self.logger.debug("Key released - arming stop/auto-send keys")
         self.keys_armed = True

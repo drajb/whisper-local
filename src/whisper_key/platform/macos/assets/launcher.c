@@ -1,7 +1,7 @@
 // platform/macos/assets/launcher.c
 // Login launcher for macOS (issue #19). autostart.py compiles this into
-// ~/Applications/Whisper Local.app with the command that starts Whisper Local
-// built in, and the LaunchAgent runs it. It starts that command as its child,
+// ~/Library/Application Support/Whisper Local/Whisper Local.app with the
+// command that starts Whisper Local built in, and the LaunchAgent runs it. It starts that command as its child,
 // and macOS checks a child's Accessibility and Microphone access against the
 // app that started it, so the grants belong to "Whisper Local" instead of Python.
 #include <ApplicationServices/ApplicationServices.h>

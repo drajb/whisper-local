@@ -4,7 +4,68 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
 
 ## [Unreleased]
 
+### Added
+- **One cleanup setting.** `postprocess.cleanup: none | light | medium | high`
+  stands in for the stutter, filler, "scratch that", backtrack and
+  smart-formatting toggles, the way Wispr Flow's Auto Cleanup levels do.
+  `light` is the new default, so "I I think, um" is typed as "I think" for
+  everyone. A toggle you set yourself (true/false rather than null) still wins
+  over the level. The Settings window shows the level instead of seven
+  checkboxes.
+- **History retention.** `history.retention_days` keeps past dictations for N
+  days, or stores none at all with 0 (Settings → General → "Keep history for").
+  Usage stats never held any text and are unaffected.
+- **Try it on the welcome window.** The first-run window has a box to dictate
+  into, so the hotkey, the mic and the paste are proven while the
+  instructions are still on screen.
+- **Pause hotkeys from the tray.** The pause hotkey's mouse equivalent, for a
+  call or a game that needs the same keys.
+- **A silent microphone says so.** A recording that delivered no sound at all
+  now says to check the mute switch and names the OS permission setting,
+  instead of "no speech detected".
+
+### Changed
+- **Up to 50 s faster startup when torch is installed.** `ctranslate2` imports
+  torch and transformers whenever they happen to be installed, and Whisper
+  Local uses neither. They are hidden from it for the duration of that one
+  import (50.3 s → 2.7 s measured). `--version`, `--settings`, `--history` and
+  the windows the tray opens no longer import the model stack at all.
+- **Settings and History open without a console window** behind them.
+- **"Audio Source" in the tray is now "Microphone".**
+- **Filler removal keeps "like" and "you know".** They are real words far more
+  often than fillers, and with light cleanup on by default "I like it" must
+  not become "I it".
+- CONTRIBUTING says plainly that pull requests from forks are open to everyone,
+  and what to do when `gh pr create` says otherwise (it is the token).
+
 ### Fixed
+- **Hotkeys were dead for the whole transcription on Windows.** The pipeline
+  ran on the hotkey backend's polling thread, so nothing pressed during a
+  transcription was seen until it finished. Every transcription now runs on a
+  thread of its own, from every entry point (key release, silence timeout,
+  maximum duration).
+- **Rephrase and prompt-from-selection did nothing on macOS.** They sent
+  Control-C, which copies nothing on a Mac. Copy and paste chords now come
+  from the platform layer (Command there, Ctrl on Windows).
+- **A pasted dictation could wipe an image on the clipboard.** Restoring the
+  "previous" clipboard read an image or a copied file back as empty text and
+  wrote that back. Non-text clipboards are left alone.
+- **A recording could start on a microphone that was being swapped out** (a
+  device change, or the default-mic watcher), and its stop then hit the new
+  recorder, which had recorded nothing. Recorder swaps and recording
+  start/stop now share a lock.
+- **A macOS login item written before this release is repaired at launch** to
+  start through the Whisper Local app, once the Command Line Tools are present
+  (follow-through on #19).
+- **The default-microphone watcher starts even with no microphone at launch**,
+  so a dock's microphone is picked up when it arrives, and it waits quietly
+  while there is none (follow-through on #20).
+- **A typo in `user_settings.yaml` showed `'NoneType' object has no attribute
+  'error'`** instead of what was wrong with the file.
+- Transcription errors are logged with their traceback, which bug reports need.
+- The bug report template and CONTRIBUTING pointed at `whisperkey.log`; the
+  file is `app.log`.
+- The test suite no longer touches a real login item or a real transcripts file.
 - **After a dock switch or waking up at another desk, dictation kept using
   the old microphone, or recorded silence.** The mic was picked once at
   startup and never revisited. With `input_device: default` it now follows

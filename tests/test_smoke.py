@@ -51,6 +51,9 @@ def fake_platform_modules(**app_attrs) -> dict:
     app.TK_MAIN_THREAD_ONLY = False
     for key, value in app_attrs.items():
         setattr(app, key, value)
+    # A MagicMock is truthy, which would start the default-microphone watcher
+    # thread in any test that builds a StateManager under these fakes.
+    modules['whisper_key.platform.audio_endpoints'].is_supported = lambda: False
     modules['whisper_key.platform'] = package
     return modules
 
@@ -188,7 +191,10 @@ class TextPostprocessTests(unittest.TestCase):
     def test_strip_filler_words(self):
         from whisper_key.text_postprocess import postprocess
         cfg = {'strip_filler_words': True}
-        self.assertEqual(postprocess("um, hello like world", cfg), "hello world")
+        # "like" is a real word far more often than a filler and stays; only
+        # sounds that are never words go ("um", "uh", "erm", "hmm").
+        self.assertEqual(postprocess("um, hello like world", cfg), "hello like world")
+        self.assertEqual(postprocess("uh, erm, hmm, hello", cfg), "hello")
 
     def test_capitalize_first(self):
         from whisper_key.text_postprocess import postprocess
@@ -2331,6 +2337,12 @@ class UninstallSafetyTests(unittest.TestCase):
             self.assertTrue((cfg / 'user_settings.yaml').exists())
 
     def test_models_need_their_own_confirmation(self):
+        # Never touch the real login item: run_uninstall() calls the live
+        # autostart module, and on a Mac with Start on login on this test
+        # used to delete ~/Library/LaunchAgents/com.drajb.whisper-local.plist.
+        import unittest.mock as _mock
+        self.enterContext(_mock.patch('whisper_key.autostart.is_enabled', return_value=False))
+        self.enterContext(_mock.patch('whisper_key.autostart.disable'))
         # Confirming the settings removal must NOT imply consent to delete
         # gigabytes of models -- that is a second, separate decision.
         import io
@@ -2351,6 +2363,12 @@ class UninstallSafetyTests(unittest.TestCase):
             self.assertTrue(model.exists(), 'models must survive a "no" on the second prompt')
 
     def test_clean_machine_reports_nothing_to_do(self):
+        # Never touch the real login item: run_uninstall() calls the live
+        # autostart module, and on a Mac with Start on login on this test
+        # used to delete ~/Library/LaunchAgents/com.drajb.whisper-local.plist.
+        import unittest.mock as _mock
+        self.enterContext(_mock.patch('whisper_key.autostart.is_enabled', return_value=False))
+        self.enterContext(_mock.patch('whisper_key.autostart.disable'))
         import io
         import contextlib
         import unittest.mock as mock
@@ -2378,19 +2396,22 @@ class UserReportedSeptemberTests(unittest.TestCase):
 
     def test_filler_stripping_preserves_line_structure(self):
         from whisper_key.text_postprocess import postprocess
-        text = 'alpha like period new paragraph bravo new line charlie'
+        text = 'alpha um period new paragraph bravo new line charlie'
         without = postprocess(text, self._fmt_cfg(strip_filler_words=False))
         with_strip = postprocess(text, self._fmt_cfg(strip_filler_words=True))
         # The ONLY difference may be the filler word itself.
-        self.assertEqual(without.replace(' like', ''), with_strip)
+        self.assertEqual(without.replace(' um', ''), with_strip)
         self.assertIn(LF + LF, with_strip, 'paragraph break must survive (issue #9)')
 
     def test_filler_stripping_still_removes_fillers(self):
         from whisper_key.text_postprocess import postprocess
         got = postprocess('um hello uh there you know friend', {'strip_filler_words': True})
-        for filler in ('um ', 'uh ', 'you know'):
+        for filler in ('um ', 'uh '):
             self.assertNotIn(filler, got)
         self.assertIn('hello', got)
+        # "you know" is a real phrase far more often than a filler, and with
+        # light cleanup on by default it has to survive.
+        self.assertIn('you know', got)
 
     def test_filler_stripping_does_not_collapse_paragraphs(self):
         # The second half of the bug: even newlines that survived the filler
@@ -2844,7 +2865,7 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
     # A just-enough tkinter for the welcome window. mainloop() models the real
     # one: it only returns once quit() has been called, because with the macOS
     # preload root alive, destroy() alone never ends it.
-    def _run_welcome_with_fake_tk(self, drive, shutdown_event=None):
+    def _run_welcome_with_fake_tk(self, drive, shutdown_event=None, text_class=None):
         import types
         import unittest.mock as mock
         calls = []
@@ -2899,6 +2920,7 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         tkinter = types.ModuleType('tkinter')
         tkinter.Tk = Tk
         tkinter.Frame = tkinter.Label = tkinter.Button = tkinter.Checkbutton = Widget
+        tkinter.Text = text_class or Widget
         tkinter.BooleanVar = BooleanVar
         on_close = mock.Mock()
         from whisper_key import first_run
@@ -2912,6 +2934,33 @@ class UserReportedLateSeptemberTests(unittest.TestCase):
         self.assertEqual(calls, ['mainloop', 'quit', 'mainloop returned', 'destroy'])
         mark.assert_called_once()
         on_close.assert_called_once()
+
+    # The welcome window has a box to dictate into right away, so the first
+    # launch proves the hotkey, the mic and the paste before it closes.
+    def test_welcome_offers_a_box_to_try_dictation_in(self):
+        boxes = []
+
+        class Text:
+            def __init__(self, *args, **kwargs):
+                self.inserted = []
+                self.bound = []
+                boxes.append(self)
+
+            def insert(self, index, text):
+                self.inserted.append(text)
+
+            def bind(self, sequence, handler, add=None):
+                self.bound.append(sequence)
+
+            def __getattr__(self, name):
+                return lambda *args, **kwargs: None
+
+        self._run_welcome_with_fake_tk(lambda root: root.close_handler(), text_class=Text)
+        self.assertEqual(len(boxes), 1, 'exactly one try-it box')
+        hint = ''.join(boxes[0].inserted)
+        self.assertIn('CTRL+WIN', hint, 'the hint names the actual recording hotkey')
+        self.assertIn('<<Paste>>', boxes[0].bound,
+                      'the hint must clear on paste, or the dictation lands after it')
 
     def test_welcome_closes_on_shutdown_without_counting_as_dismissed(self):
         import threading
@@ -3511,7 +3560,9 @@ class ReleaseReviewFixTests(unittest.TestCase):
     def test_settings_window_tolerates_non_mapping_sections(self):
         source = (ROOT / 'src' / 'whisper_key' / 'settings_ui.py').read_text(encoding='utf-8')
         self.assertIn("wm = wm if isinstance(wm, dict) else {}", source)
-        self.assertIn("bt = bt if isinstance(bt, dict) else {}", source)
+        # The Settings window no longer reads `backtrack` itself (the cleanup
+        # level covers it), so there is nothing left there to guard.
+        self.assertNotIn("bt.get('enabled'", source)
 
     def test_bad_numeric_hotkey_setting_falls_back(self):
         source = (ROOT / 'src' / 'whisper_key' / 'main.py').read_text(encoding='utf-8')
@@ -3859,3 +3910,439 @@ class DefaultInputFollowTests(unittest.TestCase):
         self.endpoints.get_default_input_id = lambda: 'headset'
         sm._follow_default_input('webcam')
         sm._rebind_to_default_input.assert_not_called()
+
+    # --- follow-through on #20 after review ---
+    def test_no_mic_at_all_waits_instead_of_rebinding(self):
+        # Unplugged, or none yet: rebinding would fail and log every two seconds.
+        sm = self._state_manager(capturing=False)
+        self.endpoints.get_default_input_id = lambda: None
+        self.assertEqual(sm._follow_default_input('webcam'), 'webcam')
+        sm._rebind_to_default_input.assert_not_called()
+
+    def test_a_mic_arriving_later_is_followed(self):
+        # The app started undocked with no mic (known None); the dock's arrives.
+        sm = self._state_manager()
+        self.endpoints.get_default_input_id = lambda: 'dock-mic'
+        self.assertEqual(sm._follow_default_input(None), 'dock-mic')
+        sm._rebind_to_default_input.assert_called_once()
+
+    def test_watcher_starts_wherever_the_platform_supports_it(self):
+        # Not only when a mic happens to be plugged in at launch.
+        import unittest.mock as mock
+        sm = self._state_manager()
+        with mock.patch('threading.Thread') as thread:
+            self.endpoints.is_supported = lambda: False
+            sm._start_default_input_watcher()
+            thread.assert_not_called()
+            self.endpoints.is_supported = lambda: True
+            sm._start_default_input_watcher()
+            thread.assert_called_once()
+
+
+class LoginItemRepairTests(unittest.TestCase):
+    """Follow-through on #19: a macOS LaunchAgent written before the launcher
+    existed runs Python directly and exits at every login. It is rewritten to go
+    through the launcher, once, and only when the tools to build one exist."""
+
+    LAUNCHER = ('Library', 'Application Support', 'Whisper Local', 'Whisper Local.app',
+                'Contents', 'MacOS', 'Whisper Local')
+
+    def _home_with_agent(self, home, args):
+        import plistlib
+        path = home / 'Library' / 'LaunchAgents' / 'com.drajb.whisper-local.plist'
+        path.parent.mkdir(parents=True)
+        with open(path, 'wb') as f:
+            plistlib.dump({'Label': 'com.drajb.whisper-local', 'ProgramArguments': args}, f)
+        return path
+
+    def _repair(self, args=None, tools_present=True):
+        import tempfile
+        import unittest.mock as mock
+        from whisper_key import autostart
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            launcher = home.joinpath(*self.LAUNCHER)
+            path = self._home_with_agent(home, args) if args is not None else None
+
+            # What a real _mac_enable() does once the launcher builds: point the
+            # agent at it.
+            def fake_enable():
+                import plistlib
+                with open(path, 'wb') as f:
+                    plistlib.dump({'ProgramArguments': [str(launcher)]}, f)
+                return True
+
+            with mock.patch.object(Path, 'home', return_value=home), \
+                 mock.patch.object(autostart, '_mac_run',
+                                   return_value=mock.Mock(returncode=0 if tools_present else 1)) as run, \
+                 mock.patch.object(autostart, '_mac_enable', side_effect=fake_enable) as enable:
+                result = autostart._mac_repair_if_broken()
+            return result, enable.call_count, run.call_count
+
+    def test_python_agent_is_rewritten_when_the_tools_exist(self):
+        repaired, enabled, _ = self._repair(['/usr/bin/python3', '-m', 'whisper_key.main'])
+        self.assertTrue(repaired)
+        self.assertEqual(enabled, 1)
+
+    def test_python_agent_is_left_alone_without_the_tools(self):
+        # Rewriting it would only produce the same Python command, and a warning
+        # on every launch.
+        repaired, enabled, _ = self._repair(['/usr/bin/python3', '-m', 'whisper_key.main'],
+                                            tools_present=False)
+        self.assertFalse(repaired)
+        self.assertEqual(enabled, 0)
+
+    def test_launcher_agent_is_not_touched(self):
+        import tempfile
+        home_marker = Path(tempfile.gettempdir())  # any path; replaced per call below
+        launcher_args = [str(home_marker.joinpath(*self.LAUNCHER))]
+        # The agent must name the launcher under the SAME home the test fakes,
+        # so build the args inside _repair's home by passing a sentinel and
+        # rewriting: simplest is to run the real check with a matching home.
+        import unittest.mock as mock
+        from whisper_key import autostart
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            self._home_with_agent(home, [str(home.joinpath(*self.LAUNCHER))])
+            with mock.patch.object(Path, 'home', return_value=home), \
+                 mock.patch.object(autostart, '_mac_run') as run, \
+                 mock.patch.object(autostart, '_mac_enable') as enable:
+                self.assertFalse(autostart._mac_repair_if_broken())
+            run.assert_not_called()
+            enable.assert_not_called()
+
+    def test_no_agent_means_nothing_to_repair(self):
+        repaired, enabled, ran = self._repair(args=None)
+        self.assertFalse(repaired)
+        self.assertEqual(enabled, 0)
+        self.assertEqual(ran, 0)
+
+    def test_repair_is_wired_into_startup(self):
+        source = (ROOT / 'src' / 'whisper_key' / 'autostart.py').read_text(encoding='utf-8')
+        body = source[source.index('def repair_if_broken'):]
+        self.assertIn('_mac_repair_if_broken()', body[:400],
+                      'repair_if_broken() must dispatch to the macOS repair')
+
+
+# ── October review ───────────────────────────────────────────────────────────
+# A full pass over the product after 0.21.0: threading of the transcription
+# pipeline, platform chords, startup time, the cleanup level, and history
+# retention. Each test names the defect it pins.
+class OctoberReviewTests(unittest.TestCase):
+
+    def _source(self, rel):
+        return (ROOT / 'src' / 'whisper_key' / rel).read_text(encoding='utf-8')
+
+    # --- the copy/paste chord is Command on a Mac, not Control ---
+    def test_copy_and_paste_chords_come_from_the_platform_layer(self):
+        mac = self._source('platform/macos/keyboard.py')
+        win = self._source('platform/windows/keyboard.py')
+        self.assertIn("send_hotkey('cmd', 'c')", mac)
+        self.assertIn("send_hotkey('cmd', 'v')", mac)
+        self.assertIn("send_hotkey('ctrl', 'c')", win)
+        self.assertIn("send_hotkey('ctrl', 'v')", win)
+        state = self._source('state_manager.py')
+        self.assertNotIn("send_hotkey('ctrl', 'c')", state,
+                         'rephrase/selection-grab sent Control-C on macOS, which copies nothing')
+        self.assertNotIn("send_hotkey('ctrl', 'v')", state)
+        self.assertIn('kb.send_copy()', state)
+        self.assertIn('kb.send_paste()', state)
+
+    # --- the transcription never runs on the caller's thread ---
+    def _bare_state_manager(self):
+        import unittest.mock as mock
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest('numpy not installed')
+        fakes = fake_platform_modules()
+        for name in ('PIL', 'PIL.Image', 'PIL.ImageDraw', 'pystray', 'sounddevice', 'soxr',
+                     'faster_whisper', 'faster_whisper.utils', 'playsound3'):
+            fakes[name] = _stand_in_module(name)
+        reimport_under(self, fakes)
+        import threading
+        from whisper_key.state_manager import StateManager
+        sm = StateManager.__new__(StateManager)
+        sm.logger = __import__('logging').getLogger('test')
+        sm._state_lock = threading.Lock()
+        sm._recorder_lock = threading.RLock()
+        sm.is_processing = False
+        sm.audio_recorder = mock.Mock()
+        sm._clear_streaming_display = lambda: None
+        return sm
+
+    def test_stop_recording_returns_before_the_transcription_finishes(self):
+        # On Windows the hotkey backend calls back from its polling thread; a
+        # transcription run inline there left every hotkey dead until it ended.
+        import threading
+        sm = self._bare_state_manager()
+        sm.audio_recorder.get_recording_status.return_value = True
+        sm.audio_recorder.stop_recording.return_value = object()
+        pipeline_may_finish = threading.Event()
+        pipeline_started = threading.Event()
+
+        def slow_pipeline(audio, use_auto_enter=False):
+            pipeline_started.set()
+            pipeline_may_finish.wait(timeout=5)
+        sm._transcription_pipeline = slow_pipeline
+
+        self.assertTrue(sm.stop_recording())
+        self.assertTrue(pipeline_started.wait(timeout=2), 'the pipeline never started')
+        self.assertTrue(sm.is_processing, 'busy from the moment the key is released')
+        self.assertFalse(pipeline_may_finish.is_set(), 'stop_recording() waited for it')
+        pipeline_may_finish.set()
+
+    def test_every_pipeline_entry_point_hands_off_to_a_thread(self):
+        state = self._source('state_manager.py')
+        for method in ('def handle_max_recording_duration_reached', 'def handle_vad_event',
+                       'def stop_recording'):
+            body = state[state.index(method):]
+            body = body[:body.index('\n    def ', 10)]
+            self.assertIn('_run_pipeline_async(', body, method)
+            self.assertNotIn('self._transcription_pipeline(', body, method)
+
+    def test_recorder_swaps_and_recording_starts_share_a_lock(self):
+        state = self._source('state_manager.py')
+        self.assertIn('self._recorder_lock = threading.RLock()', state)
+        for method in ('def _begin_recording', 'def _rebind_to_default_input',
+                       'def _execute_audio_device_change', 'def stop_recording'):
+            body = state[state.index(method):]
+            body = body[:body.index('\n    def ', 10)]
+            self.assertIn('with self._recorder_lock:', body, method)
+
+    # --- a silent mic says so, with where to look ---
+    def test_silent_recording_is_remembered_for_the_pipeline(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('numpy not installed')
+        fakes = fake_platform_modules()
+        for name in ('sounddevice', 'soxr'):
+            fakes[name] = _stand_in_module(name)
+        reimport_under(self, fakes)
+        from whisper_key.audio_recorder import AudioRecorder
+        rec = AudioRecorder.__new__(AudioRecorder)
+        rec.logger = __import__('logging').getLogger('test')
+        rec._needs_resampling_cached = False
+        rec._noise_suppression_config = {}
+        rec._whisper_mode_gain = None
+        rec.sample_rate = 16000
+        rec._recording_rate = 16000
+        rec.last_recording_was_silent = False
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            rec._build_audio_array([np.zeros((1600, 1), dtype=np.float32)] * 10)
+            self.assertTrue(rec.last_recording_was_silent)
+            loud = np.zeros((1600, 1), dtype=np.float32); loud[100] = 0.5
+            rec._build_audio_array([loud] * 10)
+            self.assertFalse(rec.last_recording_was_silent)
+
+    def test_silent_mic_message_names_the_permission_setting(self):
+        state = self._source('state_manager.py')
+        self.assertIn('last_recording_was_silent', state)
+        self.assertIn('Privacy', state)
+
+    # --- clipboard restore must not wipe a non-text clipboard ---
+    def test_clipboard_restore_skips_an_unreadable_original(self):
+        import unittest.mock as mock
+        reimport_under(self, fake_platform_modules())
+        import whisper_key.clipboard_manager as cmod
+        cm = cmod.ClipboardManager.__new__(cmod.ClipboardManager)
+        cm.logger = __import__('logging').getLogger('test')
+        cm.paste_preserve_clipboard = True
+        cm.paste_pre_paste_delay = 0
+        cm.paste_clipboard_restore_delay = 0
+        cm.paste_keys = ['ctrl', 'v']
+        copies = []
+        fake_clip = mock.Mock()
+        fake_clip.paste.return_value = ''          # an image on the clipboard reads as ''
+        fake_clip.copy.side_effect = copies.append
+        import io, contextlib
+        with mock.patch.object(cmod, 'pyperclip', fake_clip), \
+             mock.patch.object(cmod, 'keyboard'), contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(cm._clipboard_paste('dictated words'))
+        self.assertEqual(copies, ['dictated words'],
+                         "restoring '' would have wiped the user's image")
+
+    # --- cleanup levels ---
+    def _cfg(self, **over):
+        base = {'cleanup': 'light', 'strip_filler_words': None, 'remove_repeated_words': None,
+                'voice_editing': None, 'backtrack': {'enabled': None, 'cues': ['actually']},
+                'smart_formatting': {'times': None, 'emails': None, 'urls': None}}
+        base.update(over)
+        return base
+
+    def test_light_cleanup_drops_stutters_and_fillers_only(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('um I I think at 2, actually 3', self._cfg()),
+                         'I think at 2, actually 3')
+
+    def test_medium_cleanup_adds_editing_commands(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('um I I think at 2, actually 3', self._cfg(cleanup='medium')),
+                         'I think at 3')
+        self.assertEqual(postprocess('book it, scratch that, cancel it', self._cfg(cleanup='medium')),
+                         'cancel it')
+
+    def test_high_cleanup_adds_smart_formatting(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('mail john at example dot com at 3 pm', self._cfg(cleanup='high')),
+                         'mail john@example.com at 3 PM')
+
+    def test_no_cleanup_types_what_was_heard(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('um I I think', self._cfg(cleanup='none')), 'um I I think')
+
+    def test_an_explicit_toggle_wins_over_its_level(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('um I think', self._cfg(strip_filler_words=False)), 'um I think')
+        self.assertEqual(postprocess('at 2, actually 3', self._cfg(backtrack={'enabled': True})),
+                         'at 3', 'a pinned true applies even at light')
+
+    def test_custom_backtrack_cues_survive_the_level(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = self._cfg(cleanup='medium', backtrack={'enabled': None, 'cues': ['scrap that']})
+        self.assertEqual(postprocess('at 2, scrap that 3', cfg), 'at 3')
+        self.assertEqual(postprocess('at 2, actually 3', cfg), 'at 2, actually 3',
+                         'the default cue list must not come back')
+
+    def test_unknown_cleanup_level_falls_back_to_light(self):
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('um I I think', self._cfg(cleanup='maximum')), 'I think')
+
+    def test_shipped_defaults_leave_cleanup_toggles_to_the_level(self):
+        from ruamel.yaml import YAML
+        with open(ROOT / 'src' / 'whisper_key' / 'config.defaults.yaml', encoding='utf-8') as f:
+            pp = YAML().load(f)['postprocess']
+        self.assertEqual(pp['cleanup'], 'light')
+        for key in ('strip_filler_words', 'remove_repeated_words', 'voice_editing'):
+            self.assertIsNone(pp[key], f'{key} pinned in the defaults would mask the level')
+        self.assertIsNone(pp['backtrack']['enabled'])
+        self.assertTrue(all(v is None for v in pp['smart_formatting'].values()))
+
+    def test_filler_removal_no_longer_eats_real_words(self):
+        # "like" and "you know" were on the filler list; with light cleanup on
+        # by default that would have turned "I like it" into "I it" for everyone.
+        from whisper_key.text_postprocess import postprocess
+        self.assertEqual(postprocess('I like it, you know, um, a lot', self._cfg()),
+                         'I like it, you know, a lot')
+
+    def test_settings_window_offers_the_level_not_the_pinning_toggles(self):
+        ui = self._source('settings_ui.py')
+        self.assertIn("'postprocess.cleanup'", ui)
+        for pinned in ('postprocess.strip_filler_words', 'postprocess.voice_editing',
+                       'postprocess.backtrack.enabled', 'postprocess.smart_formatting.times'):
+            self.assertNotIn(f"'{pinned}'", ui, f'a checkbox for {pinned} would pin it')
+
+    # --- history retention ---
+    def _journal(self, tmp, entries):
+        import json
+        path = Path(tmp) / 'transcripts.jsonl'
+        with open(path, 'w', encoding='utf-8') as f:
+            for stamp, text in entries:
+                f.write(json.dumps({'timestamp': stamp, 'text': text}) + '\n')
+        return path
+
+    def test_zero_retention_stores_nothing(self):
+        import tempfile
+        import unittest.mock as mock
+        from whisper_key import transcript_log
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(transcript_log, 'get_user_app_data_path', return_value=tmp):
+            transcript_log.record_transcript('secret', retention_days=0)
+            self.assertFalse((Path(tmp) / 'transcripts.jsonl').exists())
+            self.assertEqual(transcript_log.load_transcripts(), [])
+
+    def test_retention_in_days_prunes_old_entries_on_write(self):
+        import datetime
+        import tempfile
+        import unittest.mock as mock
+        from whisper_key import transcript_log
+        old = (datetime.datetime.now() - datetime.timedelta(days=10)).isoformat(timespec='seconds')
+        recent = (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat(timespec='seconds')
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(transcript_log, 'get_user_app_data_path', return_value=tmp):
+            self._journal(tmp, [(old, 'stale'), (recent, 'fresh')])
+            transcript_log.record_transcript('new', retention_days=7)
+            texts = [e['text'] for e in transcript_log.load_transcripts()]
+        self.assertEqual(texts, ['new', 'fresh'])
+
+    def test_no_retention_keeps_everything(self):
+        import tempfile
+        import unittest.mock as mock
+        from whisper_key import transcript_log
+        with tempfile.TemporaryDirectory() as tmp, \
+             mock.patch.object(transcript_log, 'get_user_app_data_path', return_value=tmp):
+            self._journal(tmp, [('2020-01-01T00:00:00', 'ancient')])
+            transcript_log.record_transcript('new', retention_days=None)
+            transcript_log.record_transcript('also', retention_days='not a number')
+            texts = [e['text'] for e in transcript_log.load_transcripts()]
+        self.assertEqual(texts, ['also', 'new', 'ancient'])
+
+    def test_pipeline_passes_the_retention_setting(self):
+        state = self._source('state_manager.py')
+        self.assertEqual(state.count('retention_days=self._history_retention_days()'), 2,
+                         'both delivery paths must honour history.retention_days')
+
+    # --- tray and windows ---
+    def test_tray_offers_pause_and_opens_tk_windows_without_a_console(self):
+        tray = self._source('system_tray.py')
+        self.assertIn('"Pause hotkeys"', tray)
+        self.assertIn("self._run_module_in_window('--settings', windowless=True)", tray)
+        self.assertIn("self._run_module_in_window('--history', windowless=True)", tray)
+        self.assertIn('build_relaunch_command', tray,
+                      'the tray must relaunch the way autostart and Restart do')
+        self.assertIn('"Microphone"', tray)
+
+    def test_pause_from_the_tray_goes_through_the_hotkey_listener(self):
+        self.assertIn('def toggle_pause', self._source('hotkey_listener.py'))
+        self.assertIn('toggle_pause()', self._source('state_manager.py'))
+
+    # --- startup time ---
+    def test_ctranslate2_optional_backends_are_shielded(self):
+        for rel in ('whisper_engine.py', 'model_registry.py'):
+            src = self._source(rel)
+            self.assertLess(src.index('import_ctranslate2_without_optional_backends()'),
+                            src.index('from faster_whisper'), rel)
+
+    def test_shield_blocks_torch_only_during_the_import(self):
+        import subprocess
+        import sys as _sys
+        code = (
+            "import sys; sys.path.insert(0, %r)\n"
+            "from whisper_key.utils import import_ctranslate2_without_optional_backends as f\n"
+            "f()\n"
+            "print('ctranslate2' in sys.modules, sys.modules.get('torch', 'absent') is None)\n"
+        ) % str(ROOT / 'src')
+        try:
+            import ctranslate2  # noqa: F401
+        except ImportError:
+            self.skipTest('ctranslate2 not installed')
+        out = subprocess.run([_sys.executable, '-c', code], capture_output=True, text=True, timeout=300)
+        self.assertEqual(out.stdout.split(), ['True', 'False'],
+                         f'ctranslate2 loaded, and no torch sentinel left behind: {out.stderr[-300:]}')
+
+    def test_light_cli_paths_do_not_import_the_model_stack(self):
+        import re
+        main_src = self._source('main.py')
+        top_level = [l for l in main_src.splitlines() if re.match(r'from \.\w+ import', l)]
+        for heavy in ('whisper_engine', 'model_registry', 'state_manager', 'system_tray',
+                      'audio_recorder', 'hotkey_listener'):
+            self.assertFalse(any(f'.{heavy} ' in l for l in top_level),
+                             f'{heavy} must be imported where it is used, not at module level')
+
+    def test_main_reports_a_config_error_rather_than_a_none_logger(self):
+        main_src = self._source('main.py')
+        tail = main_src[main_src.index('    except KeyboardInterrupt:'):]
+        self.assertNotIn('logger.error(', tail.split('finally:')[0])
+        self.assertIn('logging.getLogger(__name__).error(', tail)
+
+    def test_pipeline_errors_are_logged_with_their_traceback(self):
+        state = self._source('state_manager.py')
+        self.assertIn('Error in processing workflow: {e}", exc_info=True', state)
+
+    def test_log_filename_in_docs_matches_the_app(self):
+        for rel in ('CONTRIBUTING.md', '.github/ISSUE_TEMPLATE/bug_report.yml'):
+            text = (ROOT / rel).read_text(encoding='utf-8')
+            self.assertNotIn('whisperkey.log', text, rel)
+            self.assertIn('app.log', text, rel)

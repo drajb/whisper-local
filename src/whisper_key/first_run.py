@@ -94,7 +94,7 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
 
     root = tk.Tk()
     root.title("Welcome to Whisper Local")
-    root.geometry("560x460")
+    root.geometry("560x560")
     root.configure(bg=BG)
     root.resizable(False, False)
     try:
@@ -116,8 +116,9 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
         ("2.", "The tray icon shows status & settings.",
          "On Windows the tray hides icons by default — click the ^ arrow on the taskbar "
          "and drag the Whisper Local icon out for one-click access."),
-        ("3.", "Run --doctor or --selftest if anything's off.",
-         "Both ship with the app and surface common issues (mic permissions, missing model, etc.)."),
+        ("3.", "If something's off, the tray icon can diagnose it.",
+         "Right-click it → Help & diagnostics → Run diagnostics. It checks the mic, "
+         "permissions, the model and the hotkeys and says what to fix."),
     ]
 
     for num, title, body in items:
@@ -135,6 +136,29 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
         tk.Label(body_frame, text=body, bg=BG2, fg=FG_DIM,
                  font=('Segoe UI', 9),
                  anchor='w', justify='left', wraplength=440).pack(fill='x', pady=(2, 0))
+
+    # Somewhere to try it before the window closes. Seeing their own words land
+    # here is the moment it clicks for most people, and it proves the hotkey,
+    # the mic and the paste all work while the instructions are still on
+    # screen. The hotkeys are already live by the time this window opens.
+    try_box = tk.Text(container, height=3, bg=BG2, fg=FG, insertbackground=FG,
+                      bd=0, highlightthickness=1, highlightbackground=ACCENT,
+                      highlightcolor=ACCENT, font=('Segoe UI', 10), wrap='word',
+                      padx=10, pady=8)
+    try_box.insert('1.0', f"Try it now: click here, hold {hotkey_label}, say something, let go.")
+    try_box.tag_add('hint', '1.0', 'end')
+    try_box.tag_config('hint', foreground=FG_DIM)
+    try_box.pack(fill='x', pady=(12, 0))
+
+    # The hint goes on the first click or keystroke. Bound on the widget, which
+    # Tk runs before the Text class's own paste handler, so a pasted dictation
+    # never lands behind the hint text.
+    def _clear_hint(_event=None):
+        if try_box.tag_ranges('hint'):
+            try_box.delete('1.0', 'end')
+            try_box.tag_delete('hint')
+    for sequence in ('<Button-1>', '<Key>', '<<Paste>>'):
+        try_box.bind(sequence, _clear_hint, add='+')
 
     tk.Label(container,
              text="No audio or transcripts ever leave your machine. Promise.",

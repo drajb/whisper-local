@@ -268,6 +268,35 @@ def _mac_disable() -> bool:
     return True
 
 
+# True when the LaunchAgent already starts the app through the launcher.
+def _mac_agent_uses_launcher() -> bool:
+    try:
+        with open(_mac_plist_path(), "rb") as f:
+            args = plistlib.load(f).get("ProgramArguments") or []
+    except (OSError, ValueError):
+        return False
+    launcher = _mac_launcher_dir() / f"{_MAC_LAUNCHER_NAME}.app" / "Contents" / "MacOS" / _MAC_LAUNCHER_NAME
+    return bool(args) and args[0] == str(launcher)
+
+
+# A LaunchAgent written before the launcher existed runs Python directly, which
+# exits at every login without Accessibility (issue #19). Rewrite it to go
+# through the launcher the first time the app starts with the Command Line
+# Tools available. Without them there is nothing better to offer, so it is left
+# alone rather than nagged about on every launch.
+def _mac_repair_if_broken() -> bool:
+    if not _mac_is_enabled() or _mac_agent_uses_launcher():
+        return False
+    tools = _mac_run(["/usr/bin/xcode-select", "-p"])
+    if tools.returncode != 0:
+        return False
+    _mac_enable()
+    repaired = _mac_agent_uses_launcher()
+    if repaired:
+        logger.warning("Repaired the login item: it now starts through the Whisper Local app")
+    return repaired
+
+
 # ── public API ──
 
 def is_enabled() -> bool:
@@ -315,6 +344,8 @@ def disable() -> bool:
 # the user or a working version wrote. Returns True if it repaired something.
 def repair_if_broken() -> bool:
     try:
+        if sys.platform == "darwin":
+            return _mac_repair_if_broken()
         if sys.platform != "win32" or not _win_is_enabled():
             return False
         stored = _win_stored_command()
