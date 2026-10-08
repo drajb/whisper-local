@@ -4406,3 +4406,21 @@ class OctoberReviewTests(unittest.TestCase):
     def test_history_section_hot_reloads_with_postprocess(self):
         src = self._source('config_manager.py')
         self.assertIn("for section in ('postprocess', 'history'):", src)
+
+    def test_bundle_redacts_forward_slash_user_paths_too(self):
+        from whisper_key.bundle_logs import _redact
+        self.assertEqual(_redact('file:///C:/Users/rohit/.cache/x'), 'file:///C:/Users/<USER>/.cache/x')
+        self.assertEqual(_redact(r'C:\Users\rohit\AppData'), r'C:\Users\<USER>\AppData')
+
+    def test_settings_styles_the_readonly_combobox_state(self):
+        ui = self._source('settings_ui.py')
+        self.assertIn("fieldbackground=[('readonly', BG2)", ui)
+        self.assertIn("foreground=[('readonly', FG)", ui)
+
+    def test_cheat_sheet_is_wide_enough_for_its_descriptions(self):
+        import re
+        src = self._source('cheat_sheet.py')
+        width = int(re.search(r'root\.geometry\("(\d+)x', src).group(1))
+        wrap = int(re.search(r'wraplength=(\d+)', src).group(1))
+        # label column (~190) + widest badge (~150) + padding (40) + the wrap.
+        self.assertGreaterEqual(width, 190 + 150 + 40 + wrap)

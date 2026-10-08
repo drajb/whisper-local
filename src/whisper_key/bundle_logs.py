@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # more aggressive risks munging legitimate log content (file paths, IPs, etc.).
 _REDACTIONS = [
     (re.compile(r'(C:\\Users\\)([^\\]+)', re.IGNORECASE), r'\1<USER>'),
+    # The same path with forward slashes, which URL-style and library logging
+    # (file:///C:/Users/...) produce on Windows.
+    (re.compile(r'(C:/Users/)([^/]+)', re.IGNORECASE), r'\1<USER>'),
     (re.compile(r'(/Users/)([^/]+)'), r'\1<USER>'),
     (re.compile(r'(/home/)([^/]+)'), r'\1<USER>'),
     # URL credentials (scheme://user:pass@host) — applied to EVERY bundled file, so

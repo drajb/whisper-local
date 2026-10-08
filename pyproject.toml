@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisper-local"
-version = "0.21.0"
+version = "0.22.0"
 description = "Free, open-source, fully offline AI dictation for Windows and macOS. Hold a hotkey, speak, get text at the cursor. 100% local. Powered by Whisper."
 readme = "README.md"
 license = "MIT"

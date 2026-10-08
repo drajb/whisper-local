@@ -1,12 +1,58 @@
 # Whisper Local — Code Audit & Improvement Backlog
 
-**Last updated:** 2026-09-28
+**Last updated:** 2026-10-07
 **Audited versions:** 0.10.0 (Round 1, below) and 0.11.x (Round 2, next section)
 **Method:** Parallel subsystem reviews + manual verification of every finding before fixing.
 
 > This is a living document. Each issue has a stable ID (e.g. `SRV-1`) so commits and PRs can reference it. When you fix one, change its **Status** to `FIXED (<commit>)` rather than deleting it, so history stays readable.
 
 ---
+
+## Round 14 (0.22.0) — contributor fixes and a full product review (2026-10)
+
+Five issues arrived in nine days, each with a fix on the reporter's fork
+(#17, #18, #19 from @cbd; #20, #21 from @ElHunne). They became PRs #22–#26,
+opened from their fork branches so the commits and authorship are theirs. The
+reason they couldn't open the PRs themselves was never in this repository:
+with admin access, the fork network, rulesets, branch protection and
+interaction limits (`interactionAbility: NO_LIMIT`) all check clean, and the
+owner can open a PR from any of those forks. The belief propagated from issue
+to issue after a real fork-of-fork problem in August; CONTRIBUTING now says so.
+
+Then a review of every module on the dictation path. Findings, by reach:
+
+- **`import ctranslate2` cost 50 s on a machine with torch installed.** Its
+  package `__init__` imports the optional torch and transformers converters
+  whenever they exist, under a bare `except ImportError`. The app uses
+  neither. `utils.import_ctranslate2_without_optional_backends()` makes them
+  look absent for exactly that import (50.3 s → 2.7 s). `main.py` no longer
+  imports the model stack for `--version`, `--settings` or `--history`.
+- **The transcription ran on the hotkey backend's thread.** On Windows that
+  is global-hotkeys' 20 ms poller, so no hotkey was seen until the
+  transcription finished. Every entry point now hands off to a thread, with
+  `is_processing` raised first. A `_recorder_lock` serialises recording
+  start/stop against recorder swaps.
+- **Tk variables bound to the wrong interpreter on Windows.** The twin of #17
+  across the history window, the add-word dialog and the fallback window;
+  reproduced with two roots. Guarded by a test over all of `src/`.
+- **macOS copy chord.** Rephrase and selection-grab sent Control-C. Mirrored
+  `send_copy()`/`send_paste()` in the platform layer.
+- **Clipboard restore wiped images.** `pyperclip.paste()` reads a non-text
+  clipboard as `''`; that was written back.
+- **Cleanup levels** (`none/light/medium/high`) replace seven toggles in the
+  Settings window; the defaults leave the toggles `null` so the level applies,
+  and `light` is on for everyone. The filler list lost "like" and "you know",
+  which would have been deleted from everyone's prose.
+- **Screenshots exposed two UI defects**: unreadable read-only comboboxes (the
+  `readonly` state map was never styled) and a cheat sheet too narrow for its
+  own descriptions. Both found only because the captures were looked at.
+
+Not done, deliberately: Wispr Flow's Notetaker (meeting capture). The existing
+`--transcribe-system` loopback path is untested on CI and this machine's audio
+is a remote session; shipping a headline feature nobody has run is worse than
+not shipping it.
+
+44 tests added across the round; 343 pass.
 
 ## Round 13 (0.21.0) — the defaults that never updated (2026-09)
 

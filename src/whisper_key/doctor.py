@@ -257,15 +257,7 @@ def _section_model() -> int:
             streaming_models_config=streaming_cfg.get('models', {}),
         )
         model_key = whisper_cfg.get('model', 'tiny')
-        cached = False
-        for getter in ('is_cached', 'is_model_cached', 'get_cached_models'):
-            if hasattr(registry, getter):
-                try:
-                    result = getattr(registry, getter)(model_key) if getter != 'get_cached_models' else getattr(registry, getter)()
-                    cached = bool(result) if getter != 'get_cached_models' else (model_key in (result or []))
-                    break
-                except TypeError:
-                    continue
+        cached = registry.is_model_cached(model_key)
         if cached:
             Check(f"Model '{model_key}' cached").ok().print()
         else:

@@ -2,7 +2,10 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.0]
+
+Five user-reported bugs fixed by their reporters (merged as the project's first
+outside pull requests), then a full review pass over the product.
 
 ### Added
 - **One cleanup setting.** `postprocess.cleanup: none | light | medium | high`
@@ -23,6 +26,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
 - **A silent microphone says so.** A recording that delivered no sound at all
   now says to check the mute switch and names the OS permission setting,
   instead of "no speech detected".
+- **`--doctor` reports the cleanup level and writing style in effect**, and on
+  macOS whether Accessibility is granted, with the exact Settings pane to open.
+- **Screenshots in the README**, a direct download link at the top, and `pipx`
+  as the recommended Python install.
 
 ### Changed
 - **Up to 50 s faster startup when torch is installed.** `ctranslate2` imports
@@ -39,6 +46,24 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
   and what to do when `gh pr create` says otherwise (it is the token).
 
 ### Fixed
+- **On Windows, the history search did nothing, "Fix this everywhere" always
+  said "Nothing saved", "Suggest hotwords" added nothing, "Add word" always
+  said "Type a word first", and the fallback window's status line was blank.**
+  Every one of those windows created its Tk variables without naming its own
+  window, so they bound to the first Tk root in the process: the level
+  overlay, on another thread. The widget then showed that interpreter's empty
+  copy and reads came back empty. Issue #17 was the same defect in the welcome
+  window; this is the rest of them, with a test that fails on any new one.
+- **The Settings pickers (model, language, device, cleanup, style) were
+  unreadable**: light text on the theme's light field.
+- **The hotkey cheat sheet cut off every description** on the right.
+- **`--selftest` could report a working microphone as broken** by asking it for
+  16 kHz directly, which many WASAPI devices refuse. It records at the
+  device's own rate now, as the app does.
+- **The update notice told `.exe` users to run pip.** It now says to download
+  the new `.exe`.
+- The diagnostic bundle also redacts `C:/Users/<name>` written with forward
+  slashes.
 - **Hotkeys were dead for the whole transcription on Windows.** The pipeline
   ran on the hotkey backend's polling thread, so nothing pressed during a
   transcription was seen until it finished. Every transcription now runs on a
