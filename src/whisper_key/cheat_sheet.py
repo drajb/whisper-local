@@ -112,7 +112,9 @@ def _run(config_manager, transforms_manager):
         _current_root = root
 
     root.title("Whisper Local — Hotkey Cheat Sheet")
-    root.geometry("620x560")
+    # Wide enough for label + the longest key badge + a 300 px description;
+    # at 620 the descriptions were cut off on the right.
+    root.geometry("740x560")
     root.configure(bg=BG)
     root.resizable(False, True)
     try:

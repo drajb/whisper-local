@@ -31,6 +31,12 @@ No cloud. No subscription. No telemetry. Powered by [OpenAI Whisper](https://git
 
 </div>
 
+<p align="center">
+  <img src="docs/screenshots/welcome.png" width="32%" alt="First launch: a welcome window with a box to try dictation in">
+  <img src="docs/screenshots/settings.png" width="32%" alt="The Settings window: model, cleanup level, writing style, hotkeys">
+  <img src="docs/screenshots/cheat-sheet.png" width="32%" alt="The hotkey cheat sheet, showing your current bindings">
+</p>
+
 <sub>Want a real screen-recording demo here? See [`docs/demo-recording.md`](docs/demo-recording.md) — drop a `docs/demo.gif` in and uncomment the line below.</sub>
 <!-- ![Demo](docs/demo.gif) -->
 

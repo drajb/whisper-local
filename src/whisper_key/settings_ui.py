@@ -282,7 +282,22 @@ def _apply_style(root):
         style.configure('TEntry', fieldbackground=BG2, foreground=FG,
                          insertcolor=FG, bordercolor=SEP)
         style.configure('TCombobox', fieldbackground=BG2, foreground=FG,
-                         selectbackground=BG2, selectforeground=FG)
+                         selectbackground=BG2, selectforeground=FG,
+                         background=BG3, arrowcolor=FG)
+        # Every combobox here is read-only, and a read-only combobox draws
+        # from the 'readonly' state map rather than the base configure. Without
+        # this map the theme's light field showed our light text: the model,
+        # language and device pickers were unreadable.
+        style.map('TCombobox',
+                  fieldbackground=[('readonly', BG2), ('disabled', BG2)],
+                  foreground=[('readonly', FG), ('disabled', FG_DIM)],
+                  selectbackground=[('readonly', BG2)],
+                  selectforeground=[('readonly', FG)])
+        # The drop-down list is a plain Tk Listbox, styled through the option db.
+        root.option_add('*TCombobox*Listbox.background', BG2)
+        root.option_add('*TCombobox*Listbox.foreground', FG)
+        root.option_add('*TCombobox*Listbox.selectBackground', ACCENT)
+        root.option_add('*TCombobox*Listbox.selectForeground', 'white')
         style.configure('TSeparator', background=SEP)
     except Exception:
         pass
