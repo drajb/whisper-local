@@ -21,7 +21,7 @@ Locally only, by default:
 - `stats.jsonl` — metadata only (char count, app name, duration), never the text itself
 - `app.log` — only if `logging.log_transcriptions: true` (default: false)
 
-Delete the files in `%APPDATA%\whisperkey\` (Windows) or `~/.whisperkey/` (macOS) any time.
+Delete the files in `%APPDATA%\whisperkey\` (Windows) or `~/.whisperkey/` (macOS) any time. To keep history short, or not keep it at all, set `history.retention_days` (Settings → General → "Keep history for"): `7` keeps a week, `0` stores nothing.
 
 ## Comparison
 

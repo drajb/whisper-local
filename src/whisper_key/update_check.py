@@ -60,15 +60,22 @@ def _check_in_background(notify_callback):
             data = json.loads(resp.read())
         latest_tag = data.get('tag_name', '').lstrip('v')
         if latest_tag and _is_newer(latest_tag, current):
-            notify_callback(
-                f"Update available: v{latest_tag} — run: pip install --upgrade whisper-local"
-            )
+            notify_callback(f"Update available: v{latest_tag} — {_how_to_update()}")
         try:
             last_file.write_text(today, encoding='utf-8')
         except Exception:
             pass
     except Exception as e:
         logger.debug(f"Update check failed: {e}")
+
+
+# The right upgrade step for how this copy was installed. Telling someone on
+# the standalone .exe to run pip sends them to a terminal they don't have.
+def _how_to_update() -> str:
+    import os
+    if os.environ.get('PYAPP'):
+        return "download the new whisper-local.exe from github.com/drajb/whisper-local/releases"
+    return "run: pip install --upgrade whisper-local"
 
 
 # Compare two semver strings. Strips any pre-release/build suffix first — notably

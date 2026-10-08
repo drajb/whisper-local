@@ -316,6 +316,23 @@ def _section_hotkeys() -> int:
             Check("Keyboard simulation backend").fail(str(e)).print()
             failures += 1
 
+    # Hotkeys and auto-paste both need Accessibility on macOS, and a missing
+    # grant is the single most common "nothing happens" report there (#4, #14,
+    # #19). Name the exact pane rather than leave people to find it.
+    if sys.platform == "darwin":
+        try:
+            from .platform import permissions
+            if permissions.check_accessibility_permission():
+                Check("Accessibility permission").ok().print()
+            else:
+                Check("Accessibility permission").fail(
+                    "not granted: System Settings > Privacy & Security > Accessibility, "
+                    "then add the terminal (or the Whisper Local login app) and restart"
+                ).print()
+                failures += 1
+        except Exception as e:
+            Check("Accessibility permission").warn(f"could not check: {e}").print()
+
     print()
     return failures
 
@@ -328,11 +345,23 @@ def _section_postprocess_and_rules() -> int:
         from .config_manager import ConfigManager
         cfg = ConfigManager(quiet=True)
         post_cfg = cfg.get_postprocess_config()
-        if post_cfg.get('strip_filler_words') or post_cfg.get('capitalize_first') or post_cfg.get('ensure_punctuation'):
-            enabled = [k for k in ('strip_filler_words', 'capitalize_first', 'ensure_punctuation') if post_cfg.get(k)]
-            Check("Text filters").ok(", ".join(enabled)).print()
-        else:
-            Check("Text filters").info("none enabled").print()
+        # Report what is in effect, not the raw toggles: most of them are null
+        # and follow the cleanup level.
+        from .text_postprocess import resolve_cleanup, DEFAULT_CLEANUP
+        resolved = resolve_cleanup(post_cfg)
+        level = str(post_cfg.get('cleanup') or DEFAULT_CLEANUP)
+        active = [k for k in ('remove_repeated_words', 'strip_filler_words', 'voice_editing')
+                  if resolved.get(k) is True]
+        if (resolved.get('backtrack') or {}).get('enabled') is True:
+            active.append('backtrack')
+        smart = resolved.get('smart_formatting') or {}
+        active.extend(f"smart_{k}" for k in ('times', 'emails', 'urls') if smart.get(k) is True)
+        Check("Cleanup").info(f"{level}: {', '.join(active) if active else 'nothing rewritten'}").print()
+        Check("Writing style").info(str(post_cfg.get('style') or '(individual toggles)')).print()
+        pinned = [k for k in ('capitalize_first', 'ensure_punctuation', 'strip_trailing_period',
+                              'lowercase', 'list_formatting') if post_cfg.get(k) is True]
+        if pinned:
+            Check("Shaping toggles on").info(", ".join(pinned)).print()
 
         ollama_cfg = post_cfg.get('ollama') or {}
         if ollama_cfg.get('enabled'):

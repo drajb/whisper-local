@@ -141,7 +141,10 @@ class FallbackWindow:
             button_row = tk.Frame(outer, bg=BG)
             button_row.pack(fill='x')
 
-            status_var = tk.StringVar(value=(
+            # master=root: a Variable without one binds to the first Tk root in
+            # the process (the level overlay, on Windows), and this label then
+            # shows that interpreter's empty copy instead of the text below.
+            status_var = tk.StringVar(master=root, value=(
                 "Already on your clipboard — just paste anywhere with Ctrl+V."
                 if allow_clipboard else
                 "Clipboard copying is off — press Copy if you want it there."))

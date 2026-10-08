@@ -230,7 +230,7 @@ class LevelOverlay:
                                            bg=self.BG, highlightthickness=0, borderwidth=0)
             self._level_canvas.pack(side='left', padx=(8, 0))
 
-            self._text_var = tk.StringVar(value='')
+            self._text_var = tk.StringVar(master=self.root, value='')
             self._text_label = tk.Label(outer, textvariable=self._text_var,
                                         bg=self.BG, fg=self.TEXT,
                                         font=('Segoe UI', 9),

@@ -214,7 +214,10 @@ def show_add_word_dialog(on_added=None, blocking: bool = False):
                      font=('Segoe UI', 9),
                      anchor='w').pack(fill='x', pady=(2, 10))
 
-            entry_var = tk.StringVar()
+            # master=root, or the variable binds to the first Tk root in the
+            # process (the level overlay, on Windows) and entry_var.get() reads
+            # that interpreter's empty copy: "Type a word first" on every Add.
+            entry_var = tk.StringVar(master=root)
             entry = tk.Entry(outer, textvariable=entry_var,
                              bg='#161b22', fg='#c9d1d9',
                              insertbackground='#c9d1d9',
@@ -223,7 +226,7 @@ def show_add_word_dialog(on_added=None, blocking: bool = False):
             entry.pack(fill='x', ipady=6, pady=(0, 12))
             entry.focus_set()
 
-            status_var = tk.StringVar(value="")
+            status_var = tk.StringVar(master=root, value="")
             tk.Label(outer, textvariable=status_var,
                      bg='#0d1117', fg='#7d8590',
                      font=('Segoe UI', 9),

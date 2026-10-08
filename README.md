@@ -21,6 +21,16 @@ No cloud. No subscription. No telemetry. Powered by [OpenAI Whisper](https://git
 
 ![Whisper Local — press, speak, type](docs/hero.svg)
 
+<div align="center">
+
+### [⬇&nbsp; Download for Windows](https://github.com/drajb/whisper-local/releases/latest/download/whisper-local.exe)
+
+**macOS, or Python on either:** `pipx install whisper-local` &nbsp;then&nbsp; `whisper-local`
+
+<sub>Windows 10+ · macOS · nothing to sign up for · first launch downloads one 141 MB model, then it is offline for good · [all releases](https://github.com/drajb/whisper-local/releases)</sub>
+
+</div>
+
 <sub>Want a real screen-recording demo here? See [`docs/demo-recording.md`](docs/demo-recording.md) — drop a `docs/demo.gif` in and uncomment the line below.</sub>
 <!-- ![Demo](docs/demo.gif) -->
 
@@ -76,8 +86,7 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - 🏷️ **Terminal tab title status** — the tab shows what the app is doing (idle / recording / processing), handy when the tray icon is hidden in the overflow area
 - 🔵 **Floating level overlay** — a small pill at the screen edge shows you're being heard, with the transcript appearing next to the level bar (Wispr Flow–style). Optional [real-time streaming preview](docs/streaming.md) shows words *as you speak*. *(Windows; the macOS menu-bar icon shows status instead.)*
 - 📝 **Inline voice formatting** — say "comma", "period", "question mark", "new paragraph", "open quote", etc. mid-sentence. **Fully customizable** for any language via `postprocess.inline_formatting_replacements` (e.g. map Polish phrases to punctuation, or "arrow" → →)
-- ✂️ **Voice editing** — say "scratch that" to erase what you just said, back to the start of the sentence (`postprocess.voice_editing`, opt-in)
-- ↩️ **Backtrack** — correct yourself mid-sentence: "meet at 2, actually 3" types "meet at 3" (`postprocess.backtrack`, opt-in). See [Smart editing](#️-smart-editing)
+- 🧽 **One cleanup setting** — `none` / `light` / `medium` / `high` decides how much gets tidied: stutters and "um" go by default, "scratch that" and "meet at 2, actually 3" from `medium` up. See [Smart editing](#️-smart-editing)
 - 🧾 **Spoken lists** — "first, milk. second, eggs" becomes a numbered or bulleted list (`postprocess.list_formatting`, opt-in)
 - ✨ **Snippets** — say "my signature" (or any trigger you define) mid-dictation and the full text is typed, with `${date}` / `${time}` / `${clipboard}` filled in
 - 🎨 **Writing styles** — formal, casual, very casual or verbatim, globally or per app (email formal, chat casual, code verbatim out of the box)
@@ -89,7 +98,8 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - 🌐 **Translation mode** — speak any language, get English; tray → Profile → Translate
 - 🔁 **Continuous dictation mode** — for long-form notes, the app auto-restarts recording after each delivery
 - 📋 **Fallback window** — if no text field is focused, the transcript appears in a small window (pre-selected, copy button, already on clipboard)
-- ⏸ **Pause-all hotkey** — `Ctrl+Alt+Win` disables every Whisper Local hotkey until you press it again
+- ⏸ **Pause-all hotkey** — `Ctrl+Alt+Win` (or the tray's **Pause hotkeys**) disables every Whisper Local hotkey until you press it again
+- 🗓️ **History retention** — keep your dictation history for N days, or store none at all (`history.retention_days`)
 - 📋 **Auto-paste at cursor** — transcript lands wherever you're typing, optionally followed by Enter (auto-send)
 - 🔒 **100 % local & private** — no network calls during use; Whisper models cached on disk
 - 🚀 **GPU acceleration** — NVIDIA CUDA and AMD ROCm supported, CPU works out of the box
@@ -128,12 +138,14 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 2. Double-click it. Windows SmartScreen will warn because the app isn't code-signed (a paid certificate) — click **More info → Run anyway**. The source is fully open if you'd rather audit first.
 3. First launch takes a few minutes: it sets up a private Python runtime, then downloads the Whisper model. Every launch after that is instant.
 
-### Option 2 — pip (Windows / macOS, Python 3.11–3.13)
+### Option 2 — pipx / pip (Windows / macOS, Python 3.11–3.13)
 
 ```bash
-pip install whisper-local
+pipx install whisper-local        # or: uv tool install whisper-local
 whisper-local
 ```
+
+Plain `pip install whisper-local` works too. `pipx` (or `uv tool`) gives the app its own environment, which keeps it clear of whatever else is installed; a PyTorch install in a shared environment, for example, is the usual reason a Python app takes a minute to start.
 
 ### Option 3 — from source
 
@@ -186,18 +198,26 @@ Runs through Python version, dependencies, config validation, audio devices, mod
 
 ## ✍️ Smart editing
 
-Say it naturally; it gets typed the way you'd have written it. Everything runs offline, with no LLM. Turn each one on under **Settings → Post-process**, or in `user_settings.yaml`:
+Say it naturally; it gets typed the way you'd have written it. Everything runs offline, with no LLM. One setting, **Cleanup** (Settings → Post-process, or `postprocess.cleanup`), picks how much gets tidied:
 
-| You say | You get | Setting |
+| Cleanup | What changes |
+|---|---|
+| `none` | exactly what Whisper heard |
+| `light` **(default)** | stutters ("I I think") and "um" / "uh" are dropped |
+| `medium` | light, plus "scratch that" and "at 2, actually 3" |
+| `high` | medium, plus spoken times, emails and web addresses |
+
+| You say | You get | Needs |
 |---|---|---|
-| "Let's meet at 2, actually 3" | Let's meet at 3 | `postprocess.backtrack.enabled` |
-| "Ship it Tuesday, no wait, Wednesday" | Ship it Wednesday | `postprocess.backtrack.enabled` |
-| "I I think we we should go" | I think we should go | `postprocess.remove_repeated_words` |
+| "I I think we we should go" | I think we should go | `light` |
+| "Let's meet at 2, actually 3" | Let's meet at 3 | `medium` |
+| "Ship it Tuesday, no wait, Wednesday" | Ship it Wednesday | `medium` |
+| "book the flight, scratch that, cancel it" | cancel it | `medium` |
+| "john at example dot com at 3 pm" | john@example.com at 3 PM | `high` |
 | "Groceries: first, milk. Second, eggs." | Groceries:<br>1. Milk<br>2. Eggs | `postprocess.list_formatting` |
 | "Thanks for your help. My signature." | Thanks for your help. Best,<br>Rohit | `postprocess.snippets` |
-| "book the flight, scratch that, cancel it" | cancel it | `postprocess.voice_editing` |
 
-Backtrack only acts when a cue ("actually", "I mean", "no wait", "sorry", …) is followed by a number, time, weekday or month that replaces an earlier one in the same sentence, so everyday prose like "I actually like it" is never changed.
+Any single toggle can still be pinned on or off in `user_settings.yaml` regardless of the level. Backtrack only acts when a cue ("actually", "I mean", "no wait", "sorry", …) is followed by a number, time, weekday or month that replaces an earlier one in the same sentence, so everyday prose like "I actually like it" is never changed.
 
 **Snippets** are defined once:
 
@@ -352,7 +372,9 @@ Delete the file and restart to reset to defaults. Highlights:
 | `hotkey.recording_mode` | `push_to_talk` | `push_to_talk` (hold to talk) or `toggle` |
 | `hotkey.double_tap_to_lock` | `false` | Double-tap the record hotkey for hands-free recording |
 | `hotkey.paste_last_hotkey` | `alt+shift+z` | Type your last dictation again (`ctrl+option+v` on macOS) |
+| `postprocess.cleanup` | `light` | `none` / `light` / `medium` / `high`: how much of what you said gets tidied |
 | `postprocess.style` | `""` | `formal` / `casual` / `very_casual` / `verbatim`, or per app in `app_rules.yaml` |
+| `history.retention_days` | `null` | `0` stores no history at all; `7` keeps a week |
 | `postprocess.snippets` | `[]` | Spoken shortcuts expanded inline |
 | `audio.whisper_mode.enabled` | `false` | Boost quiet speech before transcription |
 | `vad.vad_realtime_enabled` | `true` | Auto-stop on silence |
@@ -421,8 +443,10 @@ Whisper Local makes the following network calls and **no others**:
 
 1. **First launch only:** downloads the Whisper model from `huggingface.co` into your local cache.
 2. **GPU onboarding (opt-in):** if you accept the GPU setup prompt, `pip install` pulls CUDA / ROCm runtime packages from PyPI / `repo.radeon.com`.
+3. **Update check (opt-in, off by default):** once a day asks `api.github.com` for the latest release tag. Nothing but the app version leaves the machine.
+4. **Ollama (opt-in, off by default):** text goes to whatever Ollama endpoint you configure, `localhost` unless you change it.
 
-After setup, **zero network traffic**. Confirm by running `whisper-local --doctor` and inspecting the source — every network entry point lives in [`onboarding.py`](src/whisper_key/onboarding.py) and is gated behind explicit user prompts.
+During dictation, **zero network traffic**. Every entry point is in [`onboarding.py`](src/whisper_key/onboarding.py), [`update_check.py`](src/whisper_key/update_check.py) and [`text_postprocess.py`](src/whisper_key/text_postprocess.py), and each is gated behind an explicit setting or prompt. Search the source for `urllib` if you'd rather check.
 
 ---
 

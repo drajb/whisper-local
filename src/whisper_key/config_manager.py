@@ -360,10 +360,13 @@ class ConfigManager:
                 user_config = yaml.load(f) or {}
             merged = deep_merge_config(default_config, user_config)
             resolved = _resolve_platform_values(merged)
-            new_pp = resolved.get('postprocess')
-            if new_pp is not None:
-                self.config['postprocess'] = new_pp
-                self.logger.debug("Reloaded postprocess config from disk")
+            # `history` rides along: it is read per delivery too, so a changed
+            # retention applies to the next dictation without a restart.
+            for section in ('postprocess', 'history'):
+                fresh = resolved.get(section)
+                if fresh is not None:
+                    self.config[section] = fresh
+            self.logger.debug("Reloaded postprocess/history config from disk")
         except Exception as e:
             self.logger.debug(f"postprocess hot-reload failed: {e}")
 

@@ -71,13 +71,17 @@ def _test_audio_capture():
         return False, (f"Missing audio library: {e}", "pip install --upgrade whisper-local")
 
     try:
-        sd.query_devices(kind='input')
+        device = sd.query_devices(kind='input')
     except Exception as e:
         return False, (f"No default input device: {e}",
                        "Check your mic is plugged in and selected in OS settings")
 
+    # Record at the device's own rate, as the app does (it resamples to 16 kHz
+    # afterwards). Asking a WASAPI device for 16 kHz directly fails on many
+    # machines with "Invalid sample rate", which would fail a working mic here.
+    rate = int(device.get('default_samplerate') or 16000)
     try:
-        recording = sd.rec(int(0.5 * 16000), samplerate=16000, channels=1, dtype='float32')
+        recording = sd.rec(int(0.5 * rate), samplerate=rate, channels=1, dtype='float32')
         sd.wait()
         rms = float(np.sqrt(np.mean(recording.astype(np.float32) ** 2)))
         if rms < 1e-6:

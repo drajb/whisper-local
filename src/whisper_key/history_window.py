@@ -70,7 +70,12 @@ def show_history(blocking: bool = False):
         top.pack(fill='x', padx=10, pady=(10, 4))
         tk.Label(top, text='🔍', bg='#0d1117', fg='#8b949e',
                  font=('Segoe UI', 11)).pack(side='left')
-        search_var = tk.StringVar()
+        # Every Variable names this window as its master. One created without
+        # binds to the first Tk root in the process, which on Windows is the
+        # level overlay on another thread: the Entry then edits a different
+        # variable from the one the trace watches, so the search never
+        # filtered, and get() read the wrong interpreter (the #17 bug, here).
+        search_var = tk.StringVar(master=root)
         entry = tk.Entry(top, textvariable=search_var, bg='#161b22',
                          fg='#c9d1d9', insertbackground='#c9d1d9',
                          relief='flat', bd=4, font=('Segoe UI', 10))
@@ -93,7 +98,7 @@ def show_history(blocking: bool = False):
         scroll.config(command=listbox.yview)
 
         # ── preview pane ──
-        preview_var = tk.StringVar(value='')
+        preview_var = tk.StringVar(master=root, value='')
         preview = tk.Label(root, textvariable=preview_var,
                            bg='#161b22', fg='#8b949e',
                            font=('Segoe UI', 9), anchor='w',
@@ -102,7 +107,7 @@ def show_history(blocking: bool = False):
         preview.pack(fill='x', padx=10, pady=(0, 4))
 
         # ── status + buttons ──
-        status_var = tk.StringVar()
+        status_var = tk.StringVar(master=root)
         tk.Label(root, textvariable=status_var, bg='#0d1117', fg='#58a6ff',
                  anchor='w', font=('Segoe UI', 8)).pack(fill='x', padx=10)
 
@@ -225,13 +230,16 @@ def _open_correction_dialog(parent, source, status_var, on_saved):
             fill='x', padx=14, pady=(10, 2))
 
     _lbl("Replace this text (as Whisper hears it):")
-    from_var = tk.StringVar()
+    # master=dlg: see the note on search_var above. Without it, from_var.get()
+    # read a different interpreter's (empty) variable and the dialog always
+    # answered "Nothing saved".
+    from_var = tk.StringVar(master=dlg)
     tk.Entry(dlg, textvariable=from_var, bg='#161b22', fg='#c9d1d9',
              insertbackground='#c9d1d9', relief='flat', bd=4,
              font=('Segoe UI', 10)).pack(fill='x', padx=14)
 
     _lbl("With this:")
-    to_var = tk.StringVar()
+    to_var = tk.StringVar(master=dlg)
     to_entry = tk.Entry(dlg, textvariable=to_var, bg='#161b22', fg='#c9d1d9',
                         insertbackground='#c9d1d9', relief='flat', bd=4,
                         font=('Segoe UI', 10))
@@ -241,7 +249,7 @@ def _open_correction_dialog(parent, source, status_var, on_saved):
         snippet = source[:120] + ('…' if len(source) > 120 else '')
         _lbl(f"From: “{snippet}”")
 
-    msg_var = tk.StringVar()
+    msg_var = tk.StringVar(master=dlg)
     tk.Label(dlg, textvariable=msg_var, bg='#0d1117', fg='#58a6ff',
              anchor='w', font=('Segoe UI', 8)).pack(fill='x', padx=14, pady=(8, 0))
 
@@ -299,7 +307,7 @@ def _open_hotword_suggest_dialog(parent, status_var, on_saved):
     body = tk.Frame(dlg, bg='#0d1117')
     body.pack(fill='both', expand=True, padx=14)
     for word, count in candidates:
-        var = tk.BooleanVar(value=False)
+        var = tk.BooleanVar(master=dlg, value=False)
         checks.append((word, var))
         tk.Checkbutton(body, text=f'{word}   ·  {count}×', variable=var,
                        bg='#0d1117', fg='#c9d1d9', selectcolor='#161b22',

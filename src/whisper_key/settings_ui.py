@@ -85,12 +85,12 @@ def run_settings_window():
     search_bar.pack(fill='x', padx=10, pady=(10, 4))
     tk.Label(search_bar, text='🔍', bg=BG, fg=FG_DIM,
              font=('Segoe UI', 11)).pack(side='left')
-    search_var = tk.StringVar()
+    search_var = tk.StringVar(master=root)
     search_entry = tk.Entry(search_bar, textvariable=search_var, bg=BG2,
                             fg=FG, insertbackground=FG, relief='flat', bd=4,
                             font=('Segoe UI', 10))
     search_entry.pack(side='left', fill='x', expand=True, padx=(4, 0))
-    hint_var = tk.StringVar(value='Type to search settings…')
+    hint_var = tk.StringVar(master=root, value='Type to search settings…')
     tk.Label(search_bar, textvariable=hint_var, bg=BG, fg=FG_DIM,
              font=('Segoe UI', 8)).pack(side='left', padx=(8, 0))
 
@@ -378,61 +378,61 @@ def _build_general_tab(nb, cm, vars_, row_index):
     whisper = cfg.get('whisper', {})
 
     models = list((whisper.get('models') or {}).keys())
-    v = tk.StringVar(value=_v(cfg, 'whisper', 'model', default='tiny'))
+    v = tk.StringVar(master=nb, value=_v(cfg, 'whisper', 'model', default='tiny'))
     vars_['whisper.model'] = v
     _row(tab, 'whisper.model', 'Model', lambda p: _combo(p, v, models), row_index)
 
     langs = ['auto', 'en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'pl',
              'ru', 'ja', 'zh', 'ko', 'hi', 'ar']
-    v = tk.StringVar(value=_v(cfg, 'whisper', 'language', default='auto'))
+    v = tk.StringVar(master=nb, value=_v(cfg, 'whisper', 'language', default='auto'))
     vars_['whisper.language'] = v
     _row(tab, 'whisper.language', 'Language', lambda p: _combo(p, v, langs), row_index)
 
     modes = ['toggle', 'push_to_talk']
-    v = tk.StringVar(value=_v(cfg, 'hotkey', 'recording_mode', default='toggle'))
+    v = tk.StringVar(master=nb, value=_v(cfg, 'hotkey', 'recording_mode', default='toggle'))
     vars_['hotkey.recording_mode'] = v
     _row(tab, 'hotkey.recording_mode', 'Recording mode',
          lambda p: _combo(p, v, modes), row_index)
 
     devs = ['cpu', 'cuda']
-    v = tk.StringVar(value=_v(cfg, 'whisper', 'device', default='cpu'))
+    v = tk.StringVar(master=nb, value=_v(cfg, 'whisper', 'device', default='cpu'))
     vars_['whisper.device'] = v
     _row(tab, 'whisper.device', 'Compute device',
          lambda p: _combo(p, v, devs), row_index)
 
     ctypes = ['int8', 'float16', 'float32']
-    v = tk.StringVar(value=_v(cfg, 'whisper', 'compute_type', default='int8'))
+    v = tk.StringVar(master=nb, value=_v(cfg, 'whisper', 'compute_type', default='int8'))
     vars_['whisper.compute_type'] = v
     _row(tab, 'whisper.compute_type', 'Compute type',
          lambda p: _combo(p, v, ctypes), row_index)
 
-    v = tk.StringVar(value=str(_v(cfg, 'whisper', 'beam_size', default=5)))
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'whisper', 'beam_size', default=5)))
     vars_['whisper.beam_size'] = v
     _row(tab, 'whisper.beam_size', 'Beam size (1–10)',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.StringVar(value=str(_v(cfg, 'whisper', 'initial_prompt', default='')))
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'whisper', 'initial_prompt', default='')))
     vars_['whisper.initial_prompt'] = v
     _row(tab, 'whisper.initial_prompt', 'Initial prompt',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'whisper', 'prompt_from_selection', default=False)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'whisper', 'prompt_from_selection', default=False)))
     vars_['whisper.prompt_from_selection'] = v
     _check(tab, 'whisper.prompt_from_selection',
            'Seed prompt from selected text at recording start', v, row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'clipboard', 'auto_paste', default=True)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'clipboard', 'auto_paste', default=True)))
     vars_['clipboard.auto_paste'] = v
     _check(tab, 'clipboard.auto_paste',
            'Auto-paste at cursor after transcription  (per-app rules can override)',
            v, row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'audio', 'continuous_mode', default=False)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'audio', 'continuous_mode', default=False)))
     vars_['audio.continuous_mode'] = v
     _check(tab, 'audio.continuous_mode',
            'Continuous dictation mode (auto-restarts recording)', v, row_index)
 
-    v = tk.StringVar(value=str(_v(cfg, 'history', 'retention_days', default='')))
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'history', 'retention_days', default='')))
     vars_['history.retention_days'] = v
     _row(tab, 'history.retention_days', 'Keep history for (days)',
          lambda p: _entry(p, v), row_index,
@@ -445,49 +445,49 @@ def _build_audio_tab(nb, cm, vars_, row_index):
     cfg = cm.config
     ns = (cfg.get('audio') or {}).get('noise_suppression') or {}
 
-    v = tk.BooleanVar(value=bool(ns.get('enabled', False)))
+    v = tk.BooleanVar(master=nb, value=bool(ns.get('enabled', False)))
     vars_['audio.noise_suppression.enabled'] = v
     _check(tab, 'audio.noise_suppression.enabled',
            'Noise suppression  (pip install noisereduce)', v, row_index)
 
-    v = tk.StringVar(value=str(ns.get('strength', 0.75)))
+    v = tk.StringVar(master=nb, value=str(ns.get('strength', 0.75)))
     vars_['audio.noise_suppression.strength'] = v
     _row(tab, 'audio.noise_suppression.strength',
          'Noise strength (0.0 – 1.0)', lambda p: _entry(p, v), row_index)
 
     wm = (cfg.get('audio') or {}).get('whisper_mode')
     wm = wm if isinstance(wm, dict) else {}
-    v = tk.BooleanVar(value=bool(wm.get('enabled', False)))
+    v = tk.BooleanVar(master=nb, value=bool(wm.get('enabled', False)))
     vars_['audio.whisper_mode.enabled'] = v
     _check(tab, 'audio.whisper_mode.enabled',
            'Whisper mode  (boost quiet speech before transcribing)', v, row_index)
 
-    v = tk.StringVar(value=str(wm.get('max_gain', 8.0)))
+    v = tk.StringVar(master=nb, value=str(wm.get('max_gain', 8.0)))
     vars_['audio.whisper_mode.max_gain'] = v
     _row(tab, 'audio.whisper_mode.max_gain', 'Whisper mode max boost (×)',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'audio', 'pause_media_on_record', default=False)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'audio', 'pause_media_on_record', default=False)))
     vars_['audio.pause_media_on_record'] = v
     _check(tab, 'audio.pause_media_on_record',
            'Pause media player when recording starts', v, row_index)
 
-    v = tk.StringVar(value=str(_v(cfg, 'audio', 'max_duration', default=900)))
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'audio', 'max_duration', default=900)))
     vars_['audio.max_duration'] = v
     _row(tab, 'audio.max_duration', 'Max recording duration (s)',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'vad', 'vad_realtime_enabled', default=True)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'vad', 'vad_realtime_enabled', default=True)))
     vars_['vad.vad_realtime_enabled'] = v
     _check(tab, 'vad.vad_realtime_enabled',
            'Auto-stop on silence (realtime VAD)', v, row_index)
 
-    v = tk.StringVar(value=str(_v(cfg, 'vad', 'vad_silence_timeout_seconds', default=30.0)))
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'vad', 'vad_silence_timeout_seconds', default=30.0)))
     vars_['vad.vad_silence_timeout_seconds'] = v
     _row(tab, 'vad.vad_silence_timeout_seconds', 'Silence timeout (s)',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'audio_feedback', 'enabled', default=True)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'audio_feedback', 'enabled', default=True)))
     vars_['audio_feedback.enabled'] = v
     _check(tab, 'audio_feedback.enabled',
            'Audio feedback sounds (start / stop beeps)', v, row_index)
@@ -510,11 +510,11 @@ def _build_hotkeys_tab(nb, cm, vars_, row_index):
     ]
     for path, label in pairs:
         parts = path.split('.')
-        v = tk.StringVar(value=str(_v(cfg, *parts, default='')))
+        v = tk.StringVar(master=nb, value=str(_v(cfg, *parts, default='')))
         vars_[path] = v
         _row(tab, path, label, lambda p, var=v: _entry(p, var), row_index)
 
-    v = tk.BooleanVar(value=bool(_v(cfg, 'hotkey', 'double_tap_to_lock', default=False)))
+    v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'hotkey', 'double_tap_to_lock', default=False)))
     vars_['hotkey.double_tap_to_lock'] = v
     _check(tab, 'hotkey.double_tap_to_lock',
            'Hands-free: double-tap the record hotkey to lock recording on', v, row_index)
@@ -535,7 +535,7 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
     # and quietly stop the level from applying to it. The settings file keeps
     # them for anyone who wants that.
     from .text_postprocess import CLEANUP_LEVELS, DEFAULT_CLEANUP
-    v = tk.StringVar(value=str(pp.get('cleanup') or DEFAULT_CLEANUP))
+    v = tk.StringVar(master=nb, value=str(pp.get('cleanup') or DEFAULT_CLEANUP))
     vars_['postprocess.cleanup'] = v
     _row(tab, 'postprocess.cleanup', 'Cleanup',
          lambda p: _combo(p, v, list(CLEANUP_LEVELS)), row_index,
@@ -544,7 +544,7 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
 
     from .styles import available_styles
     style_names = [_NO_STYLE] + sorted(available_styles(pp))
-    v = tk.StringVar(value=str(pp.get('style') or _NO_STYLE))
+    v = tk.StringVar(master=nb, value=str(pp.get('style') or _NO_STYLE))
     vars_['postprocess.style'] = v
     _row(tab, 'postprocess.style', 'Writing style',
          lambda p: _combo(p, v, style_names), row_index,
@@ -564,7 +564,7 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
          'Spoken lists  ("first … second …" → numbered list)', 'list_formatting'),
     ]
     for path, label, cfg_key in checks:
-        v = tk.BooleanVar(value=bool(pp.get(cfg_key, False)))
+        v = tk.BooleanVar(master=nb, value=bool(pp.get(cfg_key, False)))
         vars_[path] = v
         _check(tab, path, label, v, row_index)
 
@@ -580,22 +580,22 @@ def _build_postprocess_tab(nb, cm, vars_, row_index):
 
     ollama = pp.get('ollama') or {}
 
-    v = tk.BooleanVar(value=bool(ollama.get('enabled', False)))
+    v = tk.BooleanVar(master=nb, value=bool(ollama.get('enabled', False)))
     vars_['postprocess.ollama.enabled'] = v
     _check(tab, 'postprocess.ollama.enabled',
            'Ollama polish  (local LLM punctuation cleanup)', v, row_index)
 
-    v = tk.StringVar(value=str(ollama.get('endpoint', 'http://localhost:11434')))
+    v = tk.StringVar(master=nb, value=str(ollama.get('endpoint', 'http://localhost:11434')))
     vars_['postprocess.ollama.endpoint'] = v
     _row(tab, 'postprocess.ollama.endpoint', 'Ollama endpoint',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.StringVar(value=str(ollama.get('model', 'llama3.2')))
+    v = tk.StringVar(master=nb, value=str(ollama.get('model', 'llama3.2')))
     vars_['postprocess.ollama.model'] = v
     _row(tab, 'postprocess.ollama.model', 'Ollama model',
          lambda p: _entry(p, v), row_index)
 
-    v = tk.StringVar(value=str(ollama.get('timeout', 5)))
+    v = tk.StringVar(master=nb, value=str(ollama.get('timeout', 5)))
     vars_['postprocess.ollama.timeout'] = v
     _row(tab, 'postprocess.ollama.timeout', 'Ollama timeout (s)',
          lambda p: _entry(p, v), row_index)

@@ -4346,3 +4346,63 @@ class OctoberReviewTests(unittest.TestCase):
             text = (ROOT / rel).read_text(encoding='utf-8')
             self.assertNotIn('whisperkey.log', text, rel)
             self.assertIn('app.log', text, rel)
+
+    # --- every Tk Variable names its window ---
+    def test_every_tk_variable_names_its_window(self):
+        # A Variable with no master binds to the first Tk root in the process,
+        # which on Windows is the level overlay on another thread. The widget
+        # then shows an empty value and get() reads the wrong interpreter: the
+        # history search never filtered, "Fix this everywhere" always said
+        # "Nothing saved", and the add-word dialog always said "Type a word
+        # first". (#17 was the same bug in the welcome window.)
+        import re
+        offenders = []
+        for path in sorted((ROOT / 'src' / 'whisper_key').rglob('*.py')):
+            for n, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                if re.search(r'tk\.(String|Boolean|Int|Double)Var\(', line) and 'master=' not in line:
+                    offenders.append(f'{path.name}:{n}')
+        self.assertEqual(offenders, [])
+
+    def test_a_variable_with_a_master_survives_a_second_root(self):
+        # The behaviour the guard above protects, on real Tk: with a root
+        # already open, a mastered Variable's value reaches its own window's
+        # widget, and a ticked checkbox reads back as ticked.
+        try:
+            import tkinter as tk
+            first = tk.Tk(); first.withdraw()
+        except Exception as e:
+            self.skipTest(f'no display for Tk: {e}')
+        try:
+            second = tk.Tk(); second.withdraw()
+            text = tk.StringVar(master=second, value='reached')
+            label = tk.Label(second, textvariable=text)
+            self.assertEqual(label.cget('text'), 'reached')
+            ticked = tk.BooleanVar(master=second, value=False)
+            tk.Checkbutton(second, variable=ticked).invoke()
+            self.assertTrue(ticked.get())
+            second.destroy()
+        finally:
+            first.destroy()
+
+    def test_selftest_records_at_the_devices_own_rate(self):
+        src = self._source('selftest.py')
+        self.assertIn('default_samplerate', src)
+        self.assertNotIn('samplerate=16000, channels=1', src,
+                         'a fixed 16 kHz request fails on many WASAPI devices')
+
+    def test_update_notice_matches_how_the_app_was_installed(self):
+        import unittest.mock as mock
+        from whisper_key import update_check
+        with mock.patch.dict('os.environ', {'PYAPP': r'C:\apps\whisper-local.exe'}):
+            self.assertIn('whisper-local.exe', update_check._how_to_update())
+        with mock.patch.dict('os.environ', {'PYAPP': ''}):
+            self.assertIn('pip install --upgrade', update_check._how_to_update())
+
+    def test_doctor_reports_the_cleanup_level_and_mac_accessibility(self):
+        src = self._source('doctor.py')
+        self.assertIn('resolve_cleanup', src)
+        self.assertIn('Accessibility permission', src)
+
+    def test_history_section_hot_reloads_with_postprocess(self):
+        src = self._source('config_manager.py')
+        self.assertIn("for section in ('postprocess', 'history'):", src)
