@@ -512,8 +512,10 @@ def _apply_replacements(text: str, items: list) -> str:
 # came out as "I it". With the light cleanup level on by default, the list
 # has to be safe to run on everyone's prose.
 def _strip_fillers(text: str) -> str:
+    # The hyphen guards keep "uh-huh", "uh-oh" and "mm-hmm" whole: a hyphen
+    # is a word boundary, so without them "uh-huh" came out as "-huh".
     pattern = re.compile(
-        r'\b(um|uh|erm|uhm|hmm)\b[,]?[ \t]*',
+        r'(?<!-)\b(um|uh|erm|uhm|hmm)\b(?!-)[,]?[ \t]*',
         flags=re.IGNORECASE,
     )
     cleaned = pattern.sub('', text)

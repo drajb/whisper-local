@@ -4424,3 +4424,29 @@ class OctoberReviewTests(unittest.TestCase):
         wrap = int(re.search(r'wraplength=(\d+)', src).group(1))
         # label column (~190) + widest badge (~150) + padding (40) + the wrap.
         self.assertGreaterEqual(width, 190 + 150 + 40 + wrap)
+
+    # --- stutter removal runs on everyone now: it must keep real doubles ---
+    def test_stutter_removal_keeps_emphasis_and_names(self):
+        from whisper_key.dictation_cleanup import remove_repeated_words as strip
+        for kept in ('a long long time ago', 'many many thanks', 'it was fifty fifty',
+                     'we flew to Walla Walla', 'Duran Duran played', 'wait wait wait',
+                     'that that is fine'):
+            self.assertEqual(strip(kept), kept)
+        self.assertEqual(strip('I I think the the end'), 'I think the end')
+        self.assertEqual(strip('The the start'), 'The start',
+                         'a sentence-start stutter has a lowercase second copy')
+
+    def test_fillers_do_not_bite_hyphenated_words(self):
+        from whisper_key.text_postprocess import postprocess
+        cfg = {'strip_filler_words': True}
+        self.assertEqual(postprocess('uh-huh, I see', cfg), 'uh-huh, I see')
+        self.assertEqual(postprocess('mm-hmm, uh-oh', cfg), 'mm-hmm, uh-oh')
+        self.assertEqual(postprocess('um, yes', cfg), 'yes')
+
+    def test_an_engine_error_is_reported_as_a_failure_not_silence(self):
+        engine = self._source('whisper_engine.py')
+        self.assertIn('self.last_error = str(e)', engine)
+        self.assertIn('self.last_error = None', engine)
+        state = self._source('state_manager.py')
+        self.assertIn("getattr(self.whisper_engine, 'last_error', None)", state)
+        self.assertIn('Transcription failed:', state)

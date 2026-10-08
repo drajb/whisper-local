@@ -71,6 +71,10 @@ class WhisperEngine:
         self._progress_callback = None
 
         self.vad_manager = vad_manager
+        # Why the last transcribe_audio() returned nothing, when it was an
+        # error rather than silence. The pipeline reads it so a CUDA fault
+        # mid-session is reported as a failure, not as "no speech detected".
+        self.last_error = None
 
         self._load_model()
     
@@ -219,7 +223,8 @@ class WhisperEngine:
         if audio_data is None or len(audio_data) == 0:
             self.logger.warning("No audio data to transcribe")
             return None
-        
+
+        self.last_error = None
         try:
             speech_detected = True
             if self.vad_manager and self.vad_manager.is_available():
@@ -277,10 +282,11 @@ class WhisperEngine:
                 return None
                 
         except Exception as e:
-            self.logger.error(f"Transcription failed: {e}")
+            self.last_error = str(e) or e.__class__.__name__
+            self.logger.error(f"Transcription failed: {e}", exc_info=True)
             return None
-    
-    
+
+
     def change_model(self,
                      new_model_key: str,
                      progress_callback: Optional[Callable[[str], None]] = None):

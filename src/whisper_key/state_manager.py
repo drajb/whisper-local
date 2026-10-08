@@ -551,10 +551,16 @@ class StateManager:
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
 
             if not transcribed_text:
-                # Say which of the two very different problems it was: a mic
-                # that delivered nothing at all is a mute switch or an OS
-                # permission, and "no speech" sends people looking elsewhere.
-                if getattr(self.audio_recorder, 'last_recording_was_silent', False):
+                # Say which of the very different problems it was. An engine
+                # error (a CUDA fault, a corrupt model) is not silence, and a
+                # mic that delivered nothing at all is a mute switch or an OS
+                # permission; "no speech" sends people looking elsewhere.
+                failure = getattr(self.whisper_engine, 'last_error', None)
+                if failure:
+                    self.system_tray.notify(f"Transcription failed: {failure[:140]}")
+                    if self.level_overlay:
+                        self.level_overlay.flash_failure("Transcription failed")
+                elif getattr(self.audio_recorder, 'last_recording_was_silent', False):
                     where = ("Windows lets desktop apps use it (Settings > Privacy > Microphone)"
                              if platform.system() == 'Windows' else
                              "it is allowed under System Settings > Privacy & Security > Microphone")

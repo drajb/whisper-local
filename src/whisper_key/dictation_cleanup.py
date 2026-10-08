@@ -122,8 +122,16 @@ def apply_backtrack(text: str, cues=DEFAULT_BACKTRACK_CUES) -> str:
 # =============================================================================
 
 # Doubled words that are real English, or deliberate emphasis. Never collapsed.
-_LEGIT_REPEATS = frozenset({'had', 'that', 'is', 'very', 'so', 'no', 'bye', 'yeah',
-                            'really', 'ha', 'haha', 'go', 'tsk', 'knock', 'there'})
+# This runs on everyone's dictation (light cleanup is the default), so it errs
+# on keeping: "a long long time", "many many thanks", "fifty fifty".
+_LEGIT_REPEATS = frozenset({
+    'had', 'that', 'is', 'very', 'so', 'no', 'bye', 'yeah', 'really', 'ha', 'haha',
+    'go', 'tsk', 'knock', 'there', 'long', 'far', 'many', 'much', 'big', 'more',
+    'well', 'oh', 'ah', 'aha', 'yes', 'okay', 'ok', 'please', 'never', 'ever',
+    'again', 'blah', 'la', 'na', 'da', 'bang', 'boom', 'chop', 'night', 'win',
+    'hush', 'hear', 'tut', 'fifty', 'hip', 'ho', 'hee', 'mm', 'nom', 'now', 'come',
+    'wait', 'stop', 'hey', 'hi', 'quick', 'slowly', 'louder', 'faster',
+})
 
 # A word (letters first, so numbers like "11 11" are left alone) followed by
 # copies of itself. The copy must be a whole word, so "you, you're" and
@@ -145,7 +153,15 @@ def remove_repeated_words(text: str) -> str:
 
     def keep_first(match):
         word = match.group(1)
-        return match.group(0) if word.lower() in _LEGIT_REPEATS else word
+        if word.lower() in _LEGIT_REPEATS:
+            return match.group(0)
+        # Two capitalised copies are a name, not a stutter: Walla Walla, Bora
+        # Bora, Duran Duran. Whisper writes a stutter's second copy in
+        # lowercase, so "The the" still collapses. "I" is capital regardless.
+        copies = match.group(0).replace(',', ' ').split()
+        if word.lower() != 'i' and all(copy[:1].isupper() for copy in copies):
+            return match.group(0)
+        return word
     text = _SENTENCE_START_REPEAT_RE.sub(keep_first, text)
     return _REPEAT_RE.sub(keep_first, text)
 
