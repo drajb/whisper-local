@@ -4450,3 +4450,57 @@ class OctoberReviewTests(unittest.TestCase):
         state = self._source('state_manager.py')
         self.assertIn("getattr(self.whisper_engine, 'last_error', None)", state)
         self.assertIn('Transcription failed:', state)
+
+
+# ── The standalone .exe (#27, #28) ───────────────────────────────────────────
+class StandaloneExeTests(unittest.TestCase):
+    """The .exe is built and published by release.yml, so these pin the
+    workflow itself: what the build embeds, what it proves before publishing,
+    and what it signs."""
+
+    def _workflow(self):
+        from ruamel.yaml import YAML
+        path = ROOT / '.github' / 'workflows' / 'release.yml'
+        text = path.read_text(encoding='utf-8')
+        return text, YAML(typ='safe').load(text)
+
+    def _build_exe_env(self, workflow):
+        steps = workflow['jobs']['build-exe']['steps']
+        build = next(s for s in steps if s.get('name') == 'Build whisper-local.exe')
+        return build['env']
+
+    def test_python_is_embedded_in_the_exe(self):
+        # #27: the first launch downloaded Python from github.com and timed out.
+        _, workflow = self._workflow()
+        self.assertEqual(str(self._build_exe_env(workflow).get('PYAPP_DISTRIBUTION_EMBED')).lower(), 'true')
+
+    def test_the_exe_is_launched_offline_and_online_before_publishing(self):
+        text, workflow = self._workflow()
+        names = [s.get('name') for s in workflow['jobs']['build-exe']['steps']]
+        self.assertIn('Smoke-test whisper-local.exe', names)
+        self.assertIn('python-build-standalone', text, 'the offline launch must check for the old download')
+        self.assertIn("HTTPS_PROXY = 'http://127.0.0.1:9'", text)
+        needs = workflow['jobs']['publish-pypi']['needs']
+        self.assertIn('build-exe', needs, 'a version whose .exe failed must not reach PyPI')
+
+    def test_release_exe_carries_a_build_provenance_attestation(self):
+        # #28: a heuristic can't tell a genuine build from a tampered one; this can.
+        _, workflow = self._workflow()
+        job = workflow['jobs']['build-exe']
+        self.assertEqual(job['permissions'].get('attestations'), 'write')
+        self.assertEqual(job['permissions'].get('id-token'), 'write')
+        attest = [s for s in job['steps'] if 'attest-build-provenance' in str(s.get('uses', ''))]
+        self.assertEqual(len(attest), 1)
+        self.assertEqual(attest[0]['with']['subject-path'], 'exe/whisper-local.exe')
+
+    def test_manual_runs_never_publish(self):
+        _, workflow = self._workflow()
+        triggers = workflow.get('on') or workflow.get(True)
+        self.assertIn('workflow_dispatch', triggers)
+        for job in ('publish-pypi', 'github-release'):
+            self.assertIn("startsWith(github.ref, 'refs/tags/v')", workflow['jobs'][job]['if'], job)
+
+    def test_users_are_told_how_to_verify_a_download(self):
+        for rel in ('README.md', 'docs/faq.md', 'docs/troubleshooting.md'):
+            text = (ROOT / rel).read_text(encoding='utf-8')
+            self.assertIn('gh attestation verify whisper-local.exe --repo drajb/whisper-local', text, rel)

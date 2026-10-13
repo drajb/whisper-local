@@ -46,6 +46,28 @@ outside pull requests), then a full review pass over the product.
   and what to do when `gh pr create` says otherwise (it is the token).
 
 ### Fixed
+- **The standalone `.exe` could not start on some networks**
+  ([#27](https://github.com/drajb/whisper-local/issues/27), @Dividedby0KSJ).
+  Its first launch downloaded Python from github.com with pyapp's own HTTP
+  client, which ignores the Windows proxy settings, and timed out even where
+  a browser fetched the same file fine. Python is now built into the `.exe`.
+  The remaining first-launch download (the app's libraries) goes through pip,
+  which honours the system proxy, with a longer timeout. Every release now
+  launches the real `.exe` in CI with all network blocked to prove Python
+  comes from inside it, then again normally to prove it starts.
+- **You can now prove a downloaded `.exe` is genuine**
+  ([#28](https://github.com/drajb/whisper-local/issues/28), @Aedan-S).
+  One VirusTotal engine flagged the 0.21.0 `.exe`; the flagged file was
+  byte-identical to the release (same SHA-256), and the match was a heuristic
+  on the bundled Python runtime. Releases now carry a signed build-provenance
+  attestation: `gh attestation verify whisper-local.exe --repo
+  drajb/whisper-local` confirms the file was built by this repository's CI.
+- **Stutter removal kept real doubles**: "a long long time", "many many
+  thanks", "fifty fifty" and names like "Walla Walla" are no longer
+  collapsed, and "uh-huh" is no longer cut to "-huh" by filler removal. Both
+  passes run for everyone now that light cleanup is the default.
+- **A transcription error was reported as "silence or noise only".** A CUDA
+  fault mid-session now says "Transcription failed" with the reason.
 - **On Windows, the history search did nothing, "Fix this everywhere" always
   said "Nothing saved", "Suggest hotwords" added nothing, "Add word" always
   said "Type a word first", and the fallback window's status line was blank.**

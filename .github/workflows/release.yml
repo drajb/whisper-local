@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual runs build and smoke-test the wheel and the .exe from any branch
+  # without publishing anything: the two publishing jobs only run for a tag.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -45,6 +48,10 @@ jobs:
   build-exe:
     needs: build
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write      # signs the build-provenance attestation
+      attestations: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -65,6 +72,15 @@ jobs:
           PYAPP_PYTHON_VERSION: '3.12'
           PYAPP_EXEC_CODE: 'from whisper_key.main import main; main()'
           PYAPP_PASS_LOCATION: '1'
+          # Ship Python inside the .exe. Without this the first launch fetched it
+          # from github.com with pyapp's own HTTP client, which ignores the
+          # Windows proxy settings and timed out on networks where a browser
+          # download of the very same file worked (issue #27).
+          PYAPP_DISTRIBUTION_EMBED: 'true'
+          # The one remaining first-launch download is pip installing the
+          # dependencies from PyPI. pip honours the system proxy; give slow
+          # networks longer than its 15 s default before a read counts as dead.
+          PYAPP_PIP_EXTRA_ARGS: '--timeout 60'
         run: |
           $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
           $env:PYAPP_PROJECT_PATH = $wheel
@@ -76,22 +92,64 @@ jobs:
           New-Item -ItemType Directory -Force -Path exe | Out-Null
           Copy-Item "$env:PYAPP_DIR\target\release\pyapp.exe" "exe\whisper-local.exe" -Force
           Get-Item "exe\whisper-local.exe" | Format-List Name, Length
+      # Launch the real .exe twice, as a user would. The first launch runs with
+      # every network request pointed at a dead proxy: Python must come out of
+      # the .exe itself, so the launch may only fail later, at pip, and never
+      # on a python-build-standalone download (issue #27). The second launch
+      # is a normal first run and must install and start.
+      - name: Smoke-test whisper-local.exe
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = (Resolve-Path exe\whisper-local.exe).Path
+          $sizeMB = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+          Write-Host "whisper-local.exe is $sizeMB MB"
+          if ($sizeMB -lt 15) { throw "the .exe is $sizeMB MB; an embedded Python is ~20 MB or more" }
+
+          $env:HTTPS_PROXY = 'http://127.0.0.1:9'
+          $env:HTTP_PROXY = 'http://127.0.0.1:9'
+          $offline = & $exe --version 2>&1 | Out-String
+          Write-Host "--- first launch, no network ---"; Write-Host $offline
+          Remove-Item Env:HTTPS_PROXY, Env:HTTP_PROXY
+          if ($offline -match 'python-build-standalone') { throw "the .exe still downloads Python on first launch" }
+
+          & $exe self remove 2>&1 | Out-Host
+          $online = & $exe --version 2>&1 | Out-String
+          Write-Host "--- first launch, normal network ---"; Write-Host $online
+          if ($online -notmatch 'whisper-local \d') { throw "the .exe did not start" }
+          $again = & $exe --version 2>&1 | Out-String
+          if ($again -notmatch 'whisper-local \d') { throw "the .exe did not start on its second launch" }
+          Write-Host "Second launch: $again"
+
       - name: Compute checksum
         shell: pwsh
         run: |
           $hash = (Get-FileHash exe\whisper-local.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  whisper-local.exe" | Out-File -FilePath exe\whisper-local.exe.sha256 -Encoding ascii
           Write-Host "SHA256: $hash"
+
+      # A signed statement, recorded by GitHub, that this exact file was built
+      # by this workflow from this repository at this commit. Anyone can check
+      # a download against it with `gh attestation verify` (issue #28): an
+      # antivirus heuristic can't tell a genuine build from a tampered one,
+      # this can.
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: exe/whisper-local.exe
       - uses: actions/upload-artifact@v4
         with:
           name: exe
           path: exe/
 
   publish-pypi:
-    needs: build
-    # Skip PyPI for prerelease tags (anything with a hyphen, e.g. v0.10.1-rc1).
-    # Those are for testing the pipeline / sharing early builds, not for release.
-    if: ${{ !contains(github.ref_name, '-') }}
+    # build-exe too: never publish a version whose .exe failed its smoke test.
+    needs: [build, build-exe]
+    # Tags only (a manual run publishes nothing), and not prerelease tags
+    # (anything with a hyphen, e.g. v0.10.1-rc1), which are for testing the
+    # pipeline / sharing early builds.
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -105,6 +163,7 @@ jobs:
 
   github-release:
     needs: [build, build-exe]
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -131,9 +190,9 @@ jobs:
             **Option 1 — Standalone Windows app (no Python needed)**
             Download `whisper-local.exe` below and double-click it. Windows
             SmartScreen will warn (unsigned app) — click **More info → Run anyway**.
-            First launch takes a few minutes: it sets up a private Python runtime,
-            then downloads the default Whisper `base` model (~141 MB). After that
-            it runs **100% offline**.
+            Python is built in. The first launch installs the app's libraries
+            from PyPI and downloads the default Whisper `base` model (~141 MB),
+            which takes a few minutes; after that it runs **100% offline**.
 
             **Option 2 — pip (Windows / macOS, needs Python 3.11+)**
             ```bash
@@ -142,4 +201,11 @@ jobs:
             Update later with `pip install --upgrade whisper-local`.
 
             ---
-            Verify the .exe download with `whisper-local.exe.sha256`.
+            **Verify the download.** Every `.exe` is built by GitHub Actions from
+            this repository and carries a signed build-provenance attestation:
+            ```bash
+            gh attestation verify whisper-local.exe --repo drajb/whisper-local
+            ```
+            or compare its SHA-256 with `whisper-local.exe.sha256`. An occasional
+            single-vendor antivirus flag on an unsigned app is a heuristic; if
+            the attestation verifies, the file is the one this repo built.

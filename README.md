@@ -142,7 +142,9 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 
 1. Download **`whisper-local.exe`** from the [latest release](https://github.com/drajb/whisper-local/releases/latest).
 2. Double-click it. Windows SmartScreen will warn because the app isn't code-signed (a paid certificate) — click **More info → Run anyway**. The source is fully open if you'd rather audit first.
-3. First launch takes a few minutes: it sets up a private Python runtime, then downloads the Whisper model. Every launch after that is instant.
+3. First launch takes a few minutes: Python is built in, so it installs the app's libraries from PyPI and downloads the Whisper model. Every launch after that is instant.
+
+Every `.exe` is built by GitHub Actions from this repository and carries a signed [build-provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations). To confirm a download is genuine, run `gh attestation verify whisper-local.exe --repo drajb/whisper-local`, or compare its SHA-256 with the `.sha256` file on the release page.
 
 ### Option 2 — pipx / pip (Windows / macOS, Python 3.11–3.13)
 

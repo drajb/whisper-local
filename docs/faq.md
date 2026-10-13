@@ -12,6 +12,15 @@
 
 Search the source for `urllib`, `requests`, `httpx`, `socket.connect` if you don't believe us. Every entry point is gated.
 
+### How do I know the `.exe` I downloaded is genuine?
+Every release `.exe` is built by GitHub Actions straight from this repository, and the build signs a provenance attestation recording the exact file, commit and workflow. Check yours with the [GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify whisper-local.exe --repo drajb/whisper-local
+```
+
+That proves more than an antivirus score can. The `.exe` isn't code-signed (certificates cost money), and an occasional single engine on VirusTotal flags it by heuristic, usually because it unpacks a standard Python runtime. If the attestation verifies, the file is the one this repo built. You can also compare its SHA-256 with the `.sha256` file on the release page, or skip the `.exe` and `pip install whisper-local`.
+
 ### Can it run on a plane / fully offline?
 Yes. After the first model download, Whisper Local works with zero network connectivity. This is why most of our power users love it.
 
