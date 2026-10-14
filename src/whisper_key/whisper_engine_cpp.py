@@ -92,11 +92,13 @@ class WhisperEngineCpp:
                 audio_data = audio_data.flatten()
             audio_data = audio_data.astype(np.float32)
 
-            kwargs = {}
-            if self.language:
-                kwargs['language'] = self.language
-            if self.task == 'translate':
-                kwargs['translate'] = True
+            # Always pass both: pywhispercpp defaults language to 'en' (which
+            # translates any other language), and it keeps params set by a
+            # previous call, so a per-app translate would stick otherwise.
+            kwargs = {
+                'language': self.language or 'auto',
+                'translate': self.task == 'translate',
+            }
 
             t0 = time.time()
             segments = self.model.transcribe(audio_data, **kwargs)
@@ -104,8 +106,9 @@ class WhisperEngineCpp:
             parts = []
             for s in segments:
                 text_chunk = getattr(s, 'text', None) or (s if isinstance(s, str) else '')
-                parts.append(text_chunk)
-            transcribed_text = ''.join(parts).strip()
+                parts.append(text_chunk.strip())
+            # whisper.cpp segments carry no leading space, unlike faster-whisper's
+            transcribed_text = ' '.join(p for p in parts if p)
 
             elapsed = time.time() - t0
             print(f"   ✓ Transcription completed in {elapsed:.1f} seconds")
