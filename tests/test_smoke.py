@@ -581,6 +581,31 @@ class StreakComputationTests(unittest.TestCase):
         self.assertEqual(longest, 1)
 
 
+class MinutesSavedTests(unittest.TestCase):
+    def test_uses_given_typing_speed(self):
+        from whisper_key.stats import _minutes_saved
+        # 600 words: 15 min at 40 wpm, 7.5 min at 80 wpm, minus 1 min spoken.
+        self.assertEqual(_minutes_saved(600, 60, 40), 14.0)
+        self.assertEqual(_minutes_saved(600, 60, 80), 6.5)
+
+    def test_never_negative(self):
+        from whisper_key.stats import _minutes_saved
+        self.assertEqual(_minutes_saved(10, 600, 40), 0.0)
+
+    def test_out_of_range_typing_speed_falls_back_to_default(self):
+        import copy
+        import logging
+        from ruamel.yaml import YAML
+        from whisper_key.config_manager import validate_config
+        with open(ROOT / "src" / "whisper_key" / "config.defaults.yaml", encoding="utf-8") as f:
+            defaults = YAML().load(f)
+        for bad in (0, -5, 'fast', 1000):
+            config = copy.deepcopy(defaults)
+            config['stats']['typing_wpm'] = bad
+            validate_config(config, defaults, logging.getLogger('test'))
+            self.assertEqual(config['stats']['typing_wpm'], 40, bad)
+
+
 class ProfilesShapeTests(unittest.TestCase):
     def test_defaults_yaml_is_valid(self):
         from ruamel.yaml import YAML

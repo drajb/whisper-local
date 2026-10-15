@@ -425,7 +425,8 @@ def main():
 
     if args.stats:
         from .stats import show_stats
-        sys.exit(show_stats())
+        stats_config = ConfigManager(quiet=True).config.get('stats') or {}
+        sys.exit(show_stats(stats_config.get('typing_wpm')))
 
     if args.setup:
         from .setup_wizard import run_wizard
@@ -651,7 +652,9 @@ def main():
 
         try:
             from .stats import maybe_show_daily_summary
-            summary = maybe_show_daily_summary(lambda msg: system_tray.notify(msg))
+            stats_config = config_manager.config.get('stats') or {}
+            summary = maybe_show_daily_summary(lambda msg: system_tray.notify(msg),
+                                               stats_config.get('typing_wpm'))
             if summary:
                 print(f"\n📈 {summary}")
         except Exception as e:

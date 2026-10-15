@@ -2,6 +2,13 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Your own typing speed in the stats.** `stats.typing_wpm` (Settings →
+  General → "Your typing speed") replaces the fixed 40 WPM behind the
+  "minutes saved" figure of `--stats` and the daily summary.
+
 ## [0.22.0]
 
 Five user-reported bugs fixed by their reporters (merged as the project's first
