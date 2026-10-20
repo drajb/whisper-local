@@ -179,9 +179,16 @@ class WhisperCppTranscribeTests(unittest.TestCase):
     # A stand-in for pywhispercpp's Model: records each transcribe call's
     # kwargs and returns segments without the leading space whisper.cpp omits.
     def _make_engine(self, **engine_kwargs):
+        import contextlib
+        import io
         import types
         from unittest import mock
         import numpy as np
+        # The engine prints emoji progress lines, and the Windows runner's
+        # console is cp1252. The app itself switches stdout to UTF-8 first.
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
 
         calls = []
 
@@ -643,6 +650,9 @@ class MinutesSavedTests(unittest.TestCase):
         import copy
         import logging
         from ruamel.yaml import YAML
+        # config_manager imports the platform package, whose OS backend
+        # (pywin32 / PIL) the lean CI env doesn't install.
+        reimport_under(self, fake_platform_modules())
         from whisper_key.config_manager import validate_config
         with open(ROOT / "src" / "whisper_key" / "config.defaults.yaml", encoding="utf-8") as f:
             defaults = YAML().load(f)
