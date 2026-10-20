@@ -15,9 +15,36 @@ import numpy as np
 try:
     from ten_vad import TenVad
     HAS_TEN_VAD = True
-except ImportError:
+except Exception:  # not just ImportError: a broken native install must not stop the app
     TenVad = None
     HAS_TEN_VAD = False
+
+# ten_vad picks its DLL from platform.machine(), which on Python 3.12+ asks
+# Windows for the HOST CPU, not this interpreter's. On a Snapdragon / Windows-
+# on-ARM PC running x64 Python under emulation it answers "ARM64", ten_vad
+# falls through to its 32-bit DLL, and loading that into a 64-bit process
+# fails with WinError 193 (issue #32). Report the interpreter's own
+# architecture for the duration of the constructor. A native ARM64 Python has
+# no matching DLL at all; that raises, and the caller turns VAD off.
+_INTERPRETER_MACHINE = {'win-amd64': 'AMD64', 'win32': 'x86'}
+
+
+def _create_ten_vad():
+    import platform
+    import sys
+    import sysconfig
+    machine = _INTERPRETER_MACHINE.get(sysconfig.get_platform())
+    if sys.platform != 'win32':
+        return TenVad()
+    if machine is None:
+        raise OSError(f"ten-vad ships no Windows library for {sysconfig.get_platform()}")
+    real_machine = platform.machine
+    platform.machine = lambda: machine
+    try:
+        return TenVad()
+    finally:
+        platform.machine = real_machine
+
 
 SAMPLE_RATE = 16000  # Fixed 16kHz sample rate for TEN VAD and Whisper
 VAD_HOP_DURATION_SEC = 0.016  # Fixed 256 samples at 16kHz
@@ -70,7 +97,18 @@ class VadManager:
 
     def _check_and_init_ten_vad(self):
         if (self.vad_precheck_enabled or self.vad_realtime_enabled) and HAS_TEN_VAD:
-            ten_vad = TenVad()
+            # VAD is an optimisation, not a requirement: without it every
+            # recording is transcribed and silence doesn't auto-stop. So a
+            # native library that won't load disables it instead of killing
+            # startup (issue #32).
+            try:
+                ten_vad = _create_ten_vad()
+            except Exception as e:
+                self.logger.warning(f"TEN VAD unavailable on this machine ({e}); "
+                                    "voice activity detection is off")
+                print("   ! Voice activity detection unavailable on this machine; "
+                      "dictation still works, but silence won't auto-stop recording")
+                return None
             self.logger.info("TEN VAD initialized for speech detection")
             return ten_vad
         elif (self.vad_precheck_enabled or self.vad_realtime_enabled) and not HAS_TEN_VAD:

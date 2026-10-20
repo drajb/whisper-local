@@ -2,7 +2,7 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.22.1]
 
 ### Added
 - **Your own typing speed in the stats.** `stats.typing_wpm` (Settings →
@@ -10,6 +10,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
   "minutes saved" figure of `--stats` and the daily summary.
 
 ### Fixed
+- **Startup crashed on Windows-on-ARM PCs** (Snapdragon / Surface,
+  [#32](https://github.com/drajb/whisper-local/issues/32), @South-Exe) with
+  `OSError: [WinError 193]`. The voice-activity library picks its DLL from
+  `platform.machine()`, which on Python 3.12+ reports the PC's CPU (ARM64)
+  rather than the x64 Python running under emulation, so it loaded its 32-bit
+  DLL into a 64-bit process. It now gets the interpreter's own architecture.
+  Where no matching library exists at all (a native ARM64 Python), voice
+  activity detection is switched off with a warning instead of stopping the
+  app, and `--doctor` reports it.
 - **whisper.cpp backend: speech is no longer translated to English.** With
   `language: auto`, nothing was passed to pywhispercpp, whose own default is
   `en`, so French or any other language came out translated. Auto-detection

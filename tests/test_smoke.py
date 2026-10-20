@@ -4576,3 +4576,65 @@ class StandaloneExeTests(unittest.TestCase):
         for rel in ('README.md', 'docs/faq.md', 'docs/troubleshooting.md'):
             text = (ROOT / rel).read_text(encoding='utf-8')
             self.assertIn('gh attestation verify whisper-local.exe --repo drajb/whisper-local', text, rel)
+
+
+# ── Windows on ARM (#32) ─────────────────────────────────────────────────────
+class WindowsOnArmTests(unittest.TestCase):
+    """ten_vad chooses its DLL from platform.machine(), which on Python 3.12+
+    reports the PC's CPU, not the interpreter's. On a Snapdragon PC running x64
+    Python that loaded a 32-bit DLL into a 64-bit process (WinError 193)."""
+
+    def _vad(self):
+        try:
+            import numpy  # noqa: F401
+            from whisper_key import voice_activity_detection as vad
+        except ImportError as e:
+            self.skipTest(f'needs numpy: {e}')
+        return vad
+
+    def test_ten_vad_is_given_the_interpreters_architecture(self):
+        import unittest.mock as mock
+        vad = self._vad()
+        seen = []
+
+        class FakeTenVad:
+            def __init__(self):
+                import platform
+                seen.append(platform.machine())
+        with mock.patch.object(vad, 'TenVad', FakeTenVad), \
+             mock.patch('sys.platform', 'win32'), \
+             mock.patch('sysconfig.get_platform', return_value='win-amd64'), \
+             mock.patch('platform.machine', return_value='ARM64'):
+            vad._create_ten_vad()
+            import platform
+            self.assertEqual(platform.machine(), 'ARM64', 'must be restored afterwards')
+        self.assertEqual(seen, ['AMD64'])
+
+    def test_a_vad_that_cannot_load_disables_vad_instead_of_crashing(self):
+        import io
+        import contextlib
+        import unittest.mock as mock
+        vad = self._vad()
+
+        def broken():
+            raise OSError('[WinError 193] %1 is not a valid Win32 application')
+        with mock.patch.object(vad, 'HAS_TEN_VAD', True), \
+             mock.patch.object(vad, '_create_ten_vad', broken), \
+             contextlib.redirect_stdout(io.StringIO()) as out:
+            manager = vad.VadManager(vad_precheck_enabled=True, vad_realtime_enabled=True)
+        self.assertFalse(manager.is_available())
+        self.assertIsNone(manager.create_continuous_detector())
+        self.assertIn('unavailable', out.getvalue())
+
+    def test_native_arm64_python_is_refused_cleanly(self):
+        import unittest.mock as mock
+        vad = self._vad()
+        with mock.patch('sys.platform', 'win32'), \
+             mock.patch('sysconfig.get_platform', return_value='win-arm64'):
+            with self.assertRaises(OSError):
+                vad._create_ten_vad()
+
+    def test_doctor_reports_whether_vad_loads(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'doctor.py').read_text(encoding='utf-8')
+        self.assertIn('Voice activity detection', src)
+        self.assertIn('_create_ten_vad()', src)

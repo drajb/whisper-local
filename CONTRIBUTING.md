@@ -52,7 +52,7 @@ Use the [Feature request template](https://github.com/drajb/whisper-local/issues
 
 ## Pull request process
 
-**Pull requests from forks are open to everyone.** Nothing here is limited to collaborators: no interaction limits, no rulesets, no branch protection. Several contributors have read "PRs are collaborators-only" in older issues and sent fixes as issues instead; that note dates from when this repo was itself a fork and is no longer true. If `gh pr create` tells you that you lack permission, it is your token: a fine-grained personal access token cannot open a PR against a repository you don't own. Use `gh auth login` with the browser flow, a classic token with the `public_repo` scope, or the "Compare & pull request" button on github.com.
+**Opening the pull request yourself may not work.** This repository limits pull-request creation to collaborators, so GitHub refuses `gh pr create` and hides the "Compare & pull request" button for everyone else. That isn't your token or your fork. Send your fix the way several contributors already have: push it to a branch on your fork and open an issue that links the branch. The maintainer opens the pull request from your branch, so the commits and the credit stay yours.
 
 1. Fork the repo and create a feature branch from `master`
 2. Make your change, keeping commits small and descriptive

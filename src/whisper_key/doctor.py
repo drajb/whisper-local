@@ -227,6 +227,20 @@ def _section_audio() -> int:
         Check("Audio device probe").fail(str(e)).print()
         failures += 1
 
+    # The VAD library is native code. Where it can't load (a Windows-on-ARM
+    # PC, issue #32) the app now runs without it, which silently changes
+    # behaviour: silence no longer auto-stops a recording. Say so here.
+    try:
+        from .voice_activity_detection import HAS_TEN_VAD, _create_ten_vad
+        if not HAS_TEN_VAD:
+            Check("Voice activity detection").warn("ten-vad not installed; silence won't auto-stop recording").print()
+        else:
+            _create_ten_vad()
+            Check("Voice activity detection").ok("TEN VAD").print()
+    except Exception as e:
+        Check("Voice activity detection").warn(
+            f"unavailable ({e}); dictation works, but silence won't auto-stop recording").print()
+
     print()
     return failures
 
