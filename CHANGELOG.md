@@ -2,6 +2,20 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **whisper.cpp backend: speech is no longer translated to English.** With
+  `language: auto`, nothing was passed to pywhispercpp, whose own default is
+  `en`, so French or any other language came out translated. Auto-detection
+  now works as it does on faster-whisper.
+- **whisper.cpp backend: translate no longer sticks.** pywhispercpp keeps
+  params from one call to the next, so after one recording with
+  `task: translate` (globally or from an app rule), every later recording was
+  translated too. The task is now sent on every call.
+- **whisper.cpp backend: sentences are no longer glued together.** whisper.cpp
+  segments have no leading space, so "phrase.Next" is now "phrase. Next".
+
 ## [0.22.0]
 
 Five user-reported bugs fixed by their reporters (merged as the project's first

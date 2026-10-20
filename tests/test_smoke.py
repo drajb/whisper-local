@@ -175,6 +175,53 @@ class WhisperBackendTests(unittest.TestCase):
         self.assertTrue(any("pywhispercpp" in d for d in extras["whispercpp"]))
 
 
+class WhisperCppTranscribeTests(unittest.TestCase):
+    # A stand-in for pywhispercpp's Model: records each transcribe call's
+    # kwargs and returns segments without the leading space whisper.cpp omits.
+    def _make_engine(self, **engine_kwargs):
+        import types
+        from unittest import mock
+        import numpy as np
+
+        calls = []
+
+        class FakeModel:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def transcribe(self, audio, **kwargs):
+                calls.append(kwargs)
+                return [types.SimpleNamespace(text="Bonjour."),
+                        types.SimpleNamespace(text="Ensuite ")]
+
+        fake_module = types.ModuleType("pywhispercpp.model")
+        fake_module.Model = FakeModel
+        with mock.patch.dict(sys.modules, {"pywhispercpp": types.ModuleType("pywhispercpp"),
+                                           "pywhispercpp.model": fake_module}):
+            from whisper_key.whisper_engine_cpp import WhisperEngineCpp
+            engine = WhisperEngineCpp(model_key="small", **engine_kwargs)
+        calls.clear()  # drop the warmup call
+        return engine, calls, np.zeros(16000, dtype=np.float32)
+
+    def test_auto_language_is_passed_explicitly(self):
+        # pywhispercpp defaults to 'en', which silently translates French speech
+        engine, calls, audio = self._make_engine(language="auto")
+        engine.transcribe_audio(audio)
+        self.assertEqual(calls[-1]["language"], "auto")
+
+    def test_translate_is_reset_after_a_translated_call(self):
+        # pywhispercpp keeps params between calls, so translate must be sent as False too
+        engine, calls, audio = self._make_engine(task="translate")
+        engine.transcribe_audio(audio)
+        engine.task = "transcribe"
+        engine.transcribe_audio(audio)
+        self.assertEqual([c["translate"] for c in calls], [True, False])
+
+    def test_segments_are_joined_with_spaces(self):
+        engine, calls, audio = self._make_engine()
+        self.assertEqual(engine.transcribe_audio(audio), "Bonjour. Ensuite")
+
+
 class InstanceManagerTests(unittest.TestCase):
     def test_exposes_cleanup_pid_file(self):
         src = (ROOT / "src" / "whisper_key" / "instance_manager.py").read_text(encoding="utf-8")
