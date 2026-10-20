@@ -23,7 +23,8 @@ class WhisperEngineCpp:
                  task: str = "transcribe",
                  vad_manager=None,
                  model_registry=None,
-                 log_transcriptions: bool = False):
+                 log_transcriptions: bool = False,
+                 languages: Optional[list] = None):
 
         try:
             from pywhispercpp.model import Model
@@ -49,6 +50,10 @@ class WhisperEngineCpp:
         self.model = None
         self._loading_thread = None
         self._progress_callback = None
+        # Same contract as WhisperEngine: see dictation_languages.py.
+        from .dictation_languages import normalize_languages
+        self.allowed_languages = normalize_languages(languages)
+        self.last_language_outsider = None
 
         self._Model = Model
         n_threads = max(1, (os.cpu_count() or 4) - 1)
@@ -66,6 +71,21 @@ class WhisperEngineCpp:
         except Exception as e:
             self.logger.error(f"Failed to load whisper.cpp model '{self.model_key}': {e}")
             raise
+
+    # Mirror of WhisperEngine._language_from_allowed, using pywhispercpp's
+    # auto_detect_language(), which returns probabilities for every language.
+    def _language_from_allowed(self, audio_data):
+        from .dictation_languages import choose_language
+        if len(self.allowed_languages) == 1:
+            return self.allowed_languages[0]
+        try:
+            _best, probabilities = self.model.auto_detect_language(audio_data)
+        except Exception as e:
+            self.logger.debug(f"Language detection failed, using auto: {e}")
+            return None
+        language, outsider = choose_language(dict(probabilities), self.allowed_languages)
+        self.last_language_outsider = outsider
+        return language
 
     def _warmup(self):
         try:
@@ -95,8 +115,12 @@ class WhisperEngineCpp:
             # Always pass both: pywhispercpp defaults language to 'en' (which
             # translates any other language), and it keeps params set by a
             # previous call, so a per-app translate would stick otherwise.
+            self.last_language_outsider = None
+            language = self.language
+            if language is None and self.allowed_languages:
+                language = self._language_from_allowed(audio_data)
             kwargs = {
-                'language': self.language or 'auto',
+                'language': language or 'auto',
                 'translate': self.task == 'translate',
             }
 

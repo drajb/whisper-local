@@ -2,6 +2,37 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0]
+
+Three dictation features from Wispr Flow's recent changelog, built to work
+fully offline.
+
+### Added
+- **Languages you speak.** `whisper.languages: [en, fr]` (Settings → General →
+  "Languages you speak"). With `language: auto`, Whisper otherwise picks from
+  about 100 languages, and on a short or accented clip it can pick one you
+  never speak. Listing yours keeps detection to those. Speech that is clearly
+  in another language is flagged once with an offer to add it, like Wispr
+  Flow's "Speaking a different language?". One listed language is simply used;
+  several cost one extra detection pass. Both engines (faster-whisper and
+  whisper.cpp) support it, and `--doctor` shows it.
+- **The microphone is checked while you talk.** If it delivers pure silence
+  for the first second of a recording (muted, blocked by an OS permission,
+  unplugged), the overlay and a notification say so right away, instead of
+  after you've finished speaking. A working mic in a quiet room never trips it.
+- **Retry last dictation** (tray). Re-transcribes your last recording with the
+  current model and settings: after a failure, or after switching to a bigger
+  model because it came out wrong. The result opens in the dictation-captured
+  window, ready to copy, because the tray click has taken focus from your text
+  field. The recording is kept in memory only, replaced by the next one, and
+  never written to disk. A failed transcription now points to it.
+
+### Changed
+- The README comparison table was corrected: Wispr Flow runs its own speech
+  model (Canto), not Whisper; its free tier is capped; Windows Speech
+  Recognition is deprecated. The FAQ now lists which Wispr Flow features are
+  matched and which aren't.
+
 ## [0.22.1]
 
 ### Added

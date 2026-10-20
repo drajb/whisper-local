@@ -131,6 +131,19 @@ class LevelOverlay:
             except Exception:
                 pass
 
+    # A warning shown in the pill WHILE recording continues (the pill stays
+    # up, unlike a flash). Cleared by the next mode change.
+    def show_notice(self, message: str):
+        def do():
+            if not self._text_var or self._mode not in ('recording', 'processing'):
+                return
+            try:
+                self._text_var.set(message)
+                self._text_label.configure(fg=self.BAR_ERROR)
+            except Exception:
+                pass
+        self._call(do)
+
     def set_position(self, name: str):
         if name not in self.POSITIONS:
             return
@@ -178,6 +191,10 @@ class LevelOverlay:
     def _refresh_text(self):
         if not self._text_var:
             return
+        try:
+            self._text_label.configure(fg=self.TEXT)   # drop any notice colour
+        except Exception:
+            pass
         if self._mode == 'processing':
             self._text_var.set('Transcribing…')
         elif self._streaming_text:

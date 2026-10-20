@@ -52,7 +52,8 @@ class WhisperEngine:
                  task: str = "transcribe",
                  vad_manager = None,
                  model_registry = None,
-                 log_transcriptions: bool = False):
+                 log_transcriptions: bool = False,
+                 languages: list = None):
 
         self.model_key = model_key
         self.device = device
@@ -75,6 +76,14 @@ class WhisperEngine:
         # error rather than silence. The pipeline reads it so a CUDA fault
         # mid-session is reported as a failure, not as "no speech detected".
         self.last_error = None
+        # The user's dictation languages (see dictation_languages.py). Only
+        # consulted when `language` is auto; an explicit language or an app
+        # rule's language always wins.
+        from .dictation_languages import normalize_languages
+        self.allowed_languages = normalize_languages(languages)
+        # Set when the last recording was confidently in a language outside
+        # that list; the pipeline offers to add it.
+        self.last_language_outsider = None
 
         self._load_model()
     
@@ -225,6 +234,7 @@ class WhisperEngine:
             return None
 
         self.last_error = None
+        self.last_language_outsider = None
         try:
             speech_detected = True
             if self.vad_manager and self.vad_manager.is_available():
@@ -242,9 +252,13 @@ class WhisperEngine:
             
             audio_data = audio_data.astype(np.float32)
             
+            language = self.language
+            if language is None and self.allowed_languages:
+                language = self._language_from_allowed(audio_data)
+
             transcribe_kwargs = dict(
                 beam_size=self.beam_size,
-                language=self.language,
+                language=language,
                 task=self.task,
                 condition_on_previous_text=False,
             )
@@ -286,6 +300,27 @@ class WhisperEngine:
             self.logger.error(f"Transcription failed: {e}", exc_info=True)
             return None
 
+
+    # With `language: auto` and a list of the user's languages, detect the
+    # language and keep the choice inside that list. One language is simply
+    # used; several cost one extra detection pass over the first 30 s.
+    # English-only models (*.en) have nothing to choose.
+    def _language_from_allowed(self, audio_data: np.ndarray) -> Optional[str]:
+        from .dictation_languages import choose_language
+        if len(self.allowed_languages) == 1:
+            return self.allowed_languages[0]
+        if not getattr(getattr(self.model, 'model', None), 'is_multilingual', True):
+            return None
+        try:
+            _top, _prob, all_probs = self.model.detect_language(audio_data)
+        except Exception as e:
+            self.logger.debug(f"Language detection failed, using auto: {e}")
+            return None
+        language, outsider = choose_language(dict(all_probs), self.allowed_languages)
+        self.last_language_outsider = outsider
+        self.logger.info(f"Dictation language: {language}"
+                         + (f" (speech sounded like {outsider})" if outsider else ""))
+        return language
 
     def change_model(self,
                      new_model_key: str,

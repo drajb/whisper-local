@@ -41,7 +41,9 @@ Delete the files in `%APPDATA%\whisperkey\` (Windows) or `~/.whisperkey/` (macOS
 WSR uses an old Microsoft engine that's significantly less accurate than Whisper. Whisper Local is built on **modern AI transcription** (the same OpenAI Whisper model that powers most cloud dictation services), runs on your GPU, supports 99 languages, and has voice commands + transforms.
 
 ### How is this different from Wispr Flow?
-Wispr Flow is closed-source and sends your audio to the cloud. Whisper Local is open-source, MIT-licensed, runs **100% on your machine**, and is free forever. We aim for feature parity on the dictation core (overlay, transforms, push-to-talk) — Wispr's strength is polish; ours is privacy and hackability.
+Wispr Flow is closed-source, transcribes your audio in the cloud (on its own speech model, Canto), and caps its free tier. Whisper Local is open-source, MIT-licensed, runs **100% on your machine** on OpenAI's Whisper, and is free without limits.
+
+On the dictation itself, we track Wispr's changelog and build what works offline. Matched today: push-to-talk and hands-free (double-tap) recording, auto-cleanup levels, per-app writing styles, backtrack ("at 2, actually 3"), snippets, a personal dictionary, AI transforms (via a local Ollama), paste-last, dictation languages with a "speaking a different language?" prompt, a warning while you talk when the mic hears nothing, retrying a dictation, history with retention, and usage stats. Not matched: Wispr's meeting Notetaker, its mobile apps and keyboard, cloud sync across devices, and team features. Wispr's strength is polish and its own model; ours is privacy, no limits and hackability.
 
 ### How is this different from Dragon NaturallySpeaking?
 Dragon is a paid product (~$500 perpetual or subscription), Windows-only, with great accuracy on its own engine. Whisper Local is free, cross-platform (Windows + macOS), uses Whisper, and is open-source. Dragon has decades of dictation-specific UX (Read That Back, training profiles); we have voice commands + transforms + Ollama integration.

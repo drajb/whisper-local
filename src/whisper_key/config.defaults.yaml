@@ -36,6 +36,13 @@ whisper: # Whisper AI Model Settings
     # Set to specific language code to force language, or auto for auto-detection
     language: auto
 
+    # The languages you dictate in, as codes: [en] or [en, fr]. With
+    # language: auto, Whisper otherwise picks from ~100 languages and on a
+    # short or accented clip can pick one you never speak. Listing yours keeps
+    # the choice to those; speech that is clearly in another language is
+    # flagged with an offer to add it. [] = any language.
+    languages: []
+
     # Transcription quality settings
     beam_size: 5 # Higher = more accurate but slower (1-10)
 

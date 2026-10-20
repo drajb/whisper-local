@@ -177,7 +177,8 @@ def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transc
             task=whisper_config.get('task', 'transcribe'),
             vad_manager=vad_manager,
             model_registry=model_registry,
-            log_transcriptions=log_transcriptions
+            log_transcriptions=log_transcriptions,
+            languages=whisper_config.get('languages'),
         )
 
     try:
@@ -192,7 +193,8 @@ def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transc
             task=whisper_config.get('task', 'transcribe'),
             vad_manager=vad_manager,
             model_registry=model_registry,
-            log_transcriptions=log_transcriptions
+            log_transcriptions=log_transcriptions,
+            languages=whisper_config.get('languages'),
         )
     except RuntimeError as e:
         if whisper_config['device'] != 'cuda' or not config_manager:

@@ -403,6 +403,13 @@ def _build_general_tab(nb, cm, vars_, row_index):
     vars_['whisper.language'] = v
     _row(tab, 'whisper.language', 'Language', lambda p: _combo(p, v, langs), row_index)
 
+    from .dictation_languages import normalize_languages
+    v = tk.StringVar(master=nb, value=', '.join(normalize_languages(_v(cfg, 'whisper', 'languages', default=[]))))
+    vars_['whisper.languages'] = v
+    _row(tab, 'whisper.languages', 'Languages you speak',
+         lambda p: _entry(p, v), row_index,
+         note='Codes, e.g. "en, fr". With Language = auto, detection picks only from these. Blank = any.')
+
     modes = ['toggle', 'push_to_talk']
     v = tk.StringVar(master=nb, value=_v(cfg, 'hotkey', 'recording_mode', default='toggle'))
     vars_['hotkey.recording_mode'] = v
@@ -683,6 +690,9 @@ def _coerce(var, raw, path):
         return bool(raw)
     if path == 'postprocess.style' and raw == _NO_STYLE:
         return ''
+    if path == 'whisper.languages':
+        from .dictation_languages import normalize_languages
+        return normalize_languages(raw)
     # A blank retention is "keep", which the config spells as null, not "".
     if path == 'history.retention_days' and str(raw).strip() == '':
         return None

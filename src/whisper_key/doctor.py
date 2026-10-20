@@ -170,6 +170,12 @@ def _section_config() -> int:
         Check("Effective config loads").ok().print()
         whisper_cfg = cfg.get_whisper_config()
         Check("Selected model").info(f"{whisper_cfg.get('model', '?')} on {whisper_cfg.get('device', '?')}").print()
+        from .dictation_languages import normalize_languages
+        spoken = normalize_languages(whisper_cfg.get('languages'))
+        Check("Language").info(
+            f"{whisper_cfg.get('language', 'auto')}"
+            + (f", detecting only {', '.join(spoken)}" if spoken and whisper_cfg.get('language') in (None, 'auto') else "")
+        ).print()
         hotkey_cfg = cfg.get_hotkey_config()
         Check("Recording mode").info(hotkey_cfg.get('recording_mode', 'toggle')).print()
         Check("Recording hotkey").info(hotkey_cfg.get('recording_hotkey', '?')).print()

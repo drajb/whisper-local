@@ -99,6 +99,9 @@ class AudioRecorder:
         self._stream_error = None
         self._current_level = 0.0
         self.last_recording_was_silent = False
+        # Loudest sample since the current recording began, so the state
+        # manager can warn within a second that the mic is delivering nothing.
+        self._recording_peak = 0.0
         self._start_capture()
 
     def _setup_continuous_vad_monitoring(self):
@@ -241,6 +244,9 @@ class AudioRecorder:
 
         if recording:
             self._current_level = float(np.sqrt(np.mean(chunk.astype(np.float32) ** 2)))
+            peak = float(np.max(np.abs(chunk))) if chunk.size else 0.0
+            if peak > self._recording_peak:
+                self._recording_peak = peak
         else:
             self._current_level = 0.0
 
@@ -279,6 +285,7 @@ class AudioRecorder:
             self.continuous_streaming.reset()
 
         preroll_chunks = len(self._buffer)
+        self._recording_peak = 0.0
         self.is_recording = True
         self.logger.debug(f"Recording started with {preroll_chunks} preroll chunks (~{preroll_chunks * self._vad_blocksize / self._recording_rate:.2f}s)")
         return True
@@ -415,6 +422,11 @@ class AudioRecorder:
 
     def get_current_level(self) -> float:
         return self._current_level
+
+    # Loudest sample of the recording in progress (0.0 when none). A mic that
+    # is muted, blocked by an OS permission or dead delivers exact zeros.
+    def get_recording_peak(self) -> float:
+        return self._recording_peak
 
     def cancel_recording(self):
         if not self.is_recording:

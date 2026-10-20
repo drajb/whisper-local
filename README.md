@@ -69,12 +69,14 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 
 ## ✨ Why Whisper Local?
 
-| Feature | **Whisper Local** | Wispr Flow | Dragon / Dragon Anywhere | Otter.ai | Windows Speech Recognition |
+| Feature | **Whisper Local** | Wispr Flow | Dragon / Dragon Anywhere | Otter.ai | Windows Speech Recognition (deprecated) |
 |---|:---:|:---:|:---:|:---:|:---:|
 | **Runs 100% offline** | ✅ | ❌ | ❌ (Anywhere) | ❌ | ✅ |
 | **Audio never leaves your machine** | ✅ | ❌ | ❌ | ❌ | partial |
-| **Free / open source** | ✅ | ❌ | ❌ ($$$/yr) | ❌ ($$/mo) | ✅ |
-| **Modern AI accuracy (Whisper)** | ✅ | ✅ | partial | ✅ | ❌ |
+| **Free, with no usage cap** | ✅ | ❌ (free tier is capped) | ❌ ($$$/yr) | ❌ ($$/mo) | ✅ |
+| **Open source** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Modern AI speech recognition** | ✅ (Whisper) | ✅ (its own Canto model) | partial | ✅ | ❌ |
+| **Auto-cleanup levels, per-app styles, snippets, backtrack** | ✅ | ✅ | partial | ❌ | ❌ |
 | **Works in any app via hotkey** | ✅ | ✅ | partial | ❌ | partial |
 | **Customisable voice commands** | ✅ | partial | ✅ | ❌ | ❌ |
 | **Push-to-talk + auto-paste + auto-send** | ✅ | ✅ | partial | ❌ | ❌ |
@@ -92,6 +94,9 @@ This is a **community tool**, not a product. There's no support SLA, no roadmap 
 - 🏷️ **Terminal tab title status** — the tab shows what the app is doing (idle / recording / processing), handy when the tray icon is hidden in the overflow area
 - 🔵 **Floating level overlay** — a small pill at the screen edge shows you're being heard, with the transcript appearing next to the level bar (Wispr Flow–style). Optional [real-time streaming preview](docs/streaming.md) shows words *as you speak*. *(Windows; the macOS menu-bar icon shows status instead.)*
 - 📝 **Inline voice formatting** — say "comma", "period", "question mark", "new paragraph", "open quote", etc. mid-sentence. **Fully customizable** for any language via `postprocess.inline_formatting_replacements` (e.g. map Polish phrases to punctuation, or "arrow" → →)
+- 🌍 **Languages you speak** — list them (`whisper.languages: [en, fr]`) and auto-detection picks only from those, so a short or accented clip is never transcribed as a language you don't speak. Speak one that isn't on the list and it asks whether to add it
+- 🔇 **Silent-mic warning while you talk** — if the microphone delivers no sound at all (muted, blocked by a permission, unplugged), you're told one second in, not after you've finished speaking
+- 🔁 **Retry last dictation** — tray → *Retry last dictation* re-transcribes your last recording with the current model, e.g. after a failure, or after switching to a bigger model because it came out wrong. The audio is kept in memory only, never written to disk
 - 🧽 **One cleanup setting** — `none` / `light` / `medium` / `high` decides how much gets tidied: stutters and "um" go by default, "scratch that" and "meet at 2, actually 3" from `medium` up. See [Smart editing](#️-smart-editing)
 - 🧾 **Spoken lists** — "first, milk. second, eggs" becomes a numbered or bulleted list (`postprocess.list_formatting`, opt-in)
 - ✨ **Snippets** — say "my signature" (or any trigger you define) mid-dictation and the full text is typed, with `${date}` / `${time}` / `${clipboard}` filled in
@@ -376,6 +381,7 @@ Delete the file and restart to reset to defaults. Highlights:
 | `whisper.compute_type` | `int8` | `int8`/`float16`/`float32` |
 | `whisper.language` | `auto` | Auto-detect or specific language code |
 | `whisper.hotwords` | `[]` | Words the model should favour — names, jargon |
+| `whisper.languages` | `[]` | The languages you dictate in, e.g. `[en, fr]`: auto-detection picks only from these |
 | `hotkey.recording_hotkey` | `ctrl+win` | Configurable |
 | `hotkey.recording_mode` | `push_to_talk` | `push_to_talk` (hold to talk) or `toggle` |
 | `hotkey.double_tap_to_lock` | `false` | Double-tap the record hotkey for hands-free recording |

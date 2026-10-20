@@ -45,6 +45,7 @@ Open-source project maintained as `drajb/whisper-local` by Rohit Burani. Interna
 | **Layered Defaults** | `defaults_merge.py` | Loads shipped defaults under the user's app_rules/commands/transforms/profiles, and migrates pre-0.21 full copies | ruamel.yaml |
 | **Text Post-Process** | `text_postprocess.py` | Inline formatting, smart formatting, voice editing, corrections + optional Ollama polish | urllib |
 | **Dictation Cleanup** | `dictation_cleanup.py` | Backtrack ("actually 3"), stutter removal, spoken lists, lowercase | re |
+| **Dictation Languages** | `dictation_languages.py` | "Languages you speak": restricts auto-detection, flags speech in other languages | - |
 | **Snippets** | `snippets.py` | Spoken shortcuts expanded inline during dictation | re |
 | **Styles** | `styles.py` | Named writing styles (formal/casual/very casual/verbatim), global or per app | - |
 | **Hotkey Gestures** | `hotkey_gestures.py` | Double-tap-to-lock state machine for push-to-talk | threading |

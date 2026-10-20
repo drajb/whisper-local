@@ -275,6 +275,7 @@ class StateManager:
             self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
+            self._schedule_silent_mic_check()
 
     def start_command_recording(self):
         if not self.can_start_recording():
@@ -295,6 +296,7 @@ class StateManager:
             self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
+            self._schedule_silent_mic_check()
 
     def _begin_recording(self):
         self._apply_recording_context()
@@ -312,6 +314,7 @@ class StateManager:
             self._update_ui_state("recording")
             if self.level_overlay:
                 self.level_overlay.show_recording()
+            self._schedule_silent_mic_check()
 
     # Decide whether this (plain dictation) recording should stream finalized
     # phrases to the cursor live, and if so spin up the delivery worker. Only the
@@ -467,6 +470,62 @@ class StateManager:
             self.logger.debug(f"Selection grab failed: {e}")
         return ''
     
+    # The last recording was confidently in a language outside the user's
+    # list, so it was transcribed as the closest listed one, likely badly.
+    # Say so once per language per session, naming where to add it (Wispr
+    # Flow's "Speaking a different language?").
+    def _offer_outsider_language(self):
+        code = getattr(self.whisper_engine, 'last_language_outsider', None)
+        if not code:
+            return
+        offered = self.__dict__.setdefault('_outsider_languages_offered', set())
+        if code in offered:
+            return
+        offered.add(code)
+        from .dictation_languages import language_name
+        name = language_name(code)
+        self.logger.info(f"Speech sounded like {code}, which isn't in whisper.languages")
+        self.system_tray.notify(
+            f"Speaking {name}? It isn't one of your languages, so it was transcribed as "
+            f"the closest one. Add \"{code}\" under Settings > General > Languages you speak.")
+
+    # ── Silent microphone, caught while still recording ─────────────────────
+    # A muted mic, a missing OS permission or a dead device delivers exact
+    # zeros. Found only at the end, that costs the user everything they just
+    # said, so check one second in and say so while they're still talking
+    # (Wispr Flow does the same). A real mic, even a quiet one, has a noise
+    # floor far above this threshold, so speech pauses never trip it.
+    SILENT_MIC_CHECK_SECONDS = 1.0
+    SILENT_MIC_PEAK = 1e-5
+
+    def _silent_mic_message(self) -> str:
+        where = ("Windows lets desktop apps use it (Settings > Privacy > Microphone)"
+                 if platform.system() == 'Windows' else
+                 "it is allowed under System Settings > Privacy & Security > Microphone")
+        return f"No sound is reaching the microphone. Check it isn't muted, and that {where}."
+
+    def _schedule_silent_mic_check(self):
+        self._recording_session = getattr(self, '_recording_session', 0) + 1
+        timer = threading.Timer(self.SILENT_MIC_CHECK_SECONDS, self._check_silent_mic,
+                                args=(self._recording_session, self.audio_recorder))
+        timer.daemon = True
+        timer.start()
+
+    # Runs on the timer thread. Only for the recording that scheduled it: a
+    # recording that already ended, or a mic swapped meanwhile, says nothing.
+    def _check_silent_mic(self, session, recorder):
+        if session != getattr(self, '_recording_session', None) or recorder is not self.audio_recorder:
+            return
+        try:
+            if not recorder.get_recording_status() or recorder.get_recording_peak() >= self.SILENT_MIC_PEAK:
+                return
+        except Exception:
+            return
+        self.logger.warning("Microphone delivered pure silence during the first second of recording")
+        if self.level_overlay:
+            self.level_overlay.show_notice("Mic is silent: check mute or permission")
+        self.system_tray.notify(self._silent_mic_message())
+
     # Tell the user, once per app per session, that a per-app rule made this
     # delivery copy-only. Without it the app looks broken in exactly the place
     # the rule is most useful — a code editor, where the shipped default is
@@ -533,6 +592,9 @@ class StateManager:
                 return
 
             duration = self.audio_recorder.get_audio_duration(audio_data)
+            # Kept for "Retry last dictation": in memory only, replaced by the
+            # next recording, never written to disk.
+            self._last_audio = audio_data
 
             # Commit-on-endpoint streaming: if finalized phrases were already typed
             # live during this recording, flush the trailing phrase, record it, and
@@ -549,6 +611,7 @@ class StateManager:
                 self.level_overlay.show_processing()
 
             transcribed_text = self.whisper_engine.transcribe_audio(audio_data)
+            self._offer_outsider_language()
 
             if not transcribed_text:
                 # Say which of the very different problems it was. An engine
@@ -557,15 +620,12 @@ class StateManager:
                 # permission; "no speech" sends people looking elsewhere.
                 failure = getattr(self.whisper_engine, 'last_error', None)
                 if failure:
-                    self.system_tray.notify(f"Transcription failed: {failure[:140]}")
+                    self.system_tray.notify(f"Transcription failed: {failure[:140]}. "
+                                            "Your audio is kept: tray > Retry last dictation.")
                     if self.level_overlay:
                         self.level_overlay.flash_failure("Transcription failed")
                 elif getattr(self.audio_recorder, 'last_recording_was_silent', False):
-                    where = ("Windows lets desktop apps use it (Settings > Privacy > Microphone)"
-                             if platform.system() == 'Windows' else
-                             "it is allowed under System Settings > Privacy & Security > Microphone")
-                    self.system_tray.notify(
-                        f"No sound reached the microphone. Check it isn't muted, and that {where}.")
+                    self.system_tray.notify(self._silent_mic_message())
                     if self.level_overlay:
                         self.level_overlay.flash_failure("Mic is silent")
                 else:
@@ -1074,6 +1134,67 @@ class StateManager:
 
     def get_recent_transcriptions(self) -> list:
         return list(self.recent_transcriptions)
+
+    def has_last_recording(self) -> bool:
+        return getattr(self, '_last_audio', None) is not None
+
+    # Transcribes the last recording again, with whatever model and settings
+    # are current: after a failure, or when a dictation came out wrong and a
+    # bigger model might do better (Wispr Flow's retry). Started from the tray,
+    # whose click has taken focus from the user's text field, so the result
+    # opens in the dictation-captured window rather than being pasted blind.
+    def retry_last_dictation(self) -> bool:
+        audio = getattr(self, '_last_audio', None)
+        if audio is None:
+            self.system_tray.notify("Nothing to retry yet: dictate something first.")
+            return False
+        if self.get_current_state() != "idle":
+            self.system_tray.notify("Busy: try again when the current dictation is done.")
+            return False
+        with self._state_lock:
+            self.is_processing = True
+        threading.Thread(target=self._retry_worker, args=(audio,),
+                         daemon=True, name='retry-dictation').start()
+        return True
+
+    def _retry_worker(self, audio):
+        try:
+            self._update_ui_state("processing")
+            if self.level_overlay:
+                self.level_overlay.show_processing()
+            text = self.whisper_engine.transcribe_audio(audio)
+            if text:
+                text = postprocess(text, effective_postprocess_config(
+                    self.config_manager.get_postprocess_config(), None))
+            if not text or not text.strip():
+                failure = getattr(self.whisper_engine, 'last_error', None)
+                self.system_tray.notify(f"Retry failed: {failure[:140]}" if failure
+                                        else "Retry found no speech in the last recording.")
+                if self.level_overlay:
+                    self.level_overlay.flash_failure("Retry found nothing")
+                return
+            may_copy = self.clipboard_manager.silent_copy_allowed
+            if may_copy:
+                self.clipboard_manager.copy_text(text)
+            self.fallback_window.show(
+                text,
+                reason=("Re-transcribed with the current model. Already on your clipboard."
+                        if may_copy else
+                        "Re-transcribed with the current model. Use Copy to take it."),
+                allow_clipboard=may_copy,
+            )
+            self.last_transcription = text
+            self.recent_transcriptions.appendleft(text)
+            self.system_tray.refresh_menu()
+            if self.level_overlay:
+                self.level_overlay.flash_success()
+        except Exception as e:
+            self.logger.error(f"Retry failed: {e}", exc_info=True)
+            self.system_tray.notify(f"Retry failed: {e}")
+        finally:
+            with self._state_lock:
+                self.is_processing = False
+            self._update_ui_state("idle")
 
     # Types the last dictation again at the cursor (paste-last hotkey), e.g.
     # after it went to the wrong window. Never auto-sends, and the foreground

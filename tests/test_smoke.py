@@ -2559,8 +2559,12 @@ class UserReportedSeptemberTests(unittest.TestCase):
 
     def test_recovery_paths_check_the_policy(self):
         source = (ROOT / 'src' / 'whisper_key' / 'state_manager.py').read_text(encoding='utf-8')
-        self.assertEqual(source.count('silent_copy_allowed'), 2,
-                         'both recovery paths (suppress + no-text-field) must check it')
+        # Every path that copies without the user asking: the suppress and
+        # no-text-field recoveries, and Retry last dictation.
+        self.assertEqual(source.count('silent_copy_allowed'), 3,
+                         'every silent-copy path (suppress, no text field, retry) must check it')
+        retry = source[source.index('def _retry_worker'):]
+        self.assertIn('silent_copy_allowed', retry[:retry.index(LF + '    def ', 10)])
 
     # --- #11: an app rule silencing paste looked like a broken app ---
     def test_copy_only_is_announced_once_per_rule(self):
@@ -4648,3 +4652,189 @@ class WindowsOnArmTests(unittest.TestCase):
         src = (ROOT / 'src' / 'whisper_key' / 'doctor.py').read_text(encoding='utf-8')
         self.assertIn('Voice activity detection', src)
         self.assertIn('_create_ten_vad()', src)
+
+
+# ── Wispr Flow parity, October 2026 ──────────────────────────────────────────
+# Three items from Wispr Flow's changelog: a mic that hears nothing is called
+# out while you're still talking; dictation languages restrict auto-detection
+# and flag speech in another language; the last recording can be retried.
+class WisprOctoberFeatureTests(unittest.TestCase):
+
+    def _state_manager(self):
+        import logging
+        import threading
+        import unittest.mock as mock
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest('numpy not installed')
+        fakes = fake_platform_modules()
+        for name in ('PIL', 'PIL.Image', 'PIL.ImageDraw', 'pystray', 'sounddevice', 'soxr',
+                     'faster_whisper', 'faster_whisper.utils', 'playsound3'):
+            fakes[name] = _stand_in_module(name)
+        reimport_under(self, fakes)
+        from whisper_key.state_manager import StateManager
+        sm = StateManager.__new__(StateManager)
+        sm.logger = logging.getLogger('test')
+        sm._state_lock = threading.Lock()
+        sm._recorder_lock = threading.RLock()
+        sm.is_processing = False
+        sm.is_model_loading = False
+        sm.audio_recorder = mock.Mock()
+        sm.system_tray = mock.Mock()
+        sm.level_overlay = mock.Mock()
+        sm.whisper_engine = mock.Mock()
+        return sm
+
+    # --- silent mic, caught one second in ---
+    def test_silent_mic_warns_while_still_recording(self):
+        sm = self._state_manager()
+        sm._recording_session = 7
+        sm.audio_recorder.get_recording_status.return_value = True
+        sm.audio_recorder.get_recording_peak.return_value = 0.0
+        sm._check_silent_mic(7, sm.audio_recorder)
+        sm.level_overlay.show_notice.assert_called_once()
+        self.assertIn('No sound is reaching the microphone', sm.system_tray.notify.call_args[0][0])
+
+    def test_a_working_quiet_mic_is_not_flagged(self):
+        sm = self._state_manager()
+        sm._recording_session = 1
+        sm.audio_recorder.get_recording_status.return_value = True
+        sm.audio_recorder.get_recording_peak.return_value = 0.0004   # a quiet room's noise floor
+        sm._check_silent_mic(1, sm.audio_recorder)
+        sm.system_tray.notify.assert_not_called()
+
+    def test_a_finished_or_superseded_recording_says_nothing(self):
+        import unittest.mock as mock
+        sm = self._state_manager()
+        sm.audio_recorder.get_recording_peak.return_value = 0.0
+        sm._recording_session = 2
+        sm.audio_recorder.get_recording_status.return_value = True
+        sm._check_silent_mic(1, sm.audio_recorder)                 # an older recording's timer
+        sm.audio_recorder.get_recording_status.return_value = False
+        sm._check_silent_mic(2, sm.audio_recorder)                 # this one already stopped
+        sm._check_silent_mic(2, mock.Mock())                       # the mic was swapped meanwhile
+        sm.system_tray.notify.assert_not_called()
+
+    def test_every_recording_start_schedules_the_check(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'state_manager.py').read_text(encoding='utf-8')
+        for method in ('def start_rephrase_recording', 'def start_command_recording', 'def _begin_recording'):
+            body = src[src.index(method):]
+            body = body[:body.index('\n    def ', 10)]
+            self.assertIn('self._schedule_silent_mic_check()', body, method)
+
+    def test_recorder_tracks_the_peak_of_the_current_recording_only(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'audio_recorder.py').read_text(encoding='utf-8')
+        start = src[src.index('def start_recording'):]
+        start = start[:start.index('\n    def ', 10)]
+        self.assertIn('self._recording_peak = 0.0', start, 'reset per recording')
+
+    # --- dictation languages ---
+    def test_language_list_is_normalized(self):
+        from whisper_key.dictation_languages import normalize_languages
+        self.assertEqual(normalize_languages('en, FR fr auto'), ['en', 'fr'])
+        self.assertEqual(normalize_languages(['de', 'english', 'x']), ['de'])
+        self.assertEqual(normalize_languages(None), [])
+
+    def test_detection_stays_inside_the_users_languages(self):
+        from whisper_key.dictation_languages import choose_language
+        # Whisper's own top guess (Welsh) is ignored; French is the best listed one.
+        self.assertEqual(choose_language({'en': .1, 'fr': .3, 'cy': .55}, ['en', 'fr']), ('fr', None))
+        self.assertEqual(choose_language({'en': .9}, ['en']), ('en', None))
+
+    def test_confident_speech_in_another_language_is_flagged(self):
+        from whisper_key.dictation_languages import choose_language
+        self.assertEqual(choose_language({'en': .05, 'fr': .1, 'de': .85}, ['en', 'fr']), ('fr', 'de'))
+        self.assertEqual(choose_language({'en': .2, 'fr': .25, 'de': .5}, ['en', 'fr'])[1], None,
+                         'a weak guess is not worth a notice')
+
+    def test_engine_detects_only_with_auto_and_several_languages(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('numpy not installed')
+        import types
+        import unittest.mock as mock
+        fakes = fake_platform_modules()
+        fake_fw = _stand_in_module('faster_whisper')
+        fakes['faster_whisper'] = fake_fw
+        reimport_under(self, fakes)
+        from whisper_key import whisper_engine as we
+        eng = we.WhisperEngine.__new__(we.WhisperEngine)
+        eng.logger = __import__('logging').getLogger('test')
+        eng.model = mock.Mock()
+        eng.model.model = types.SimpleNamespace(is_multilingual=True)
+        eng.model.detect_language.return_value = ('de', .9, [('en', .02), ('fr', .05), ('de', .9)])
+        eng.allowed_languages = ['en', 'fr']
+        eng.last_language_outsider = None
+        self.assertEqual(eng._language_from_allowed(np.zeros(16000, dtype=np.float32)), 'fr')
+        self.assertEqual(eng.last_language_outsider, 'de')
+        eng.allowed_languages = ['fr']
+        eng.model.detect_language.reset_mock()
+        self.assertEqual(eng._language_from_allowed(np.zeros(16000, dtype=np.float32)), 'fr')
+        eng.model.detect_language.assert_not_called()
+
+    def test_outsider_language_is_offered_once(self):
+        sm = self._state_manager()
+        sm.whisper_engine.last_language_outsider = 'de'
+        sm._offer_outsider_language()
+        sm._offer_outsider_language()
+        self.assertEqual(sm.system_tray.notify.call_count, 1)
+        self.assertIn('Speaking German?', sm.system_tray.notify.call_args[0][0])
+
+    def test_settings_saves_languages_as_a_list(self):
+        try:
+            import tkinter as tk
+            root = tk.Tk(); root.withdraw()
+        except Exception as e:
+            self.skipTest(f'no Tk: {e}')
+        try:
+            from whisper_key.settings_ui import _coerce
+            var = tk.StringVar(master=root, value='en, fr')
+            self.assertEqual(_coerce(var, 'en, fr', 'whisper.languages'), ['en', 'fr'])
+            self.assertEqual(_coerce(var, '', 'whisper.languages'), [])
+        finally:
+            root.destroy()
+
+    def test_whisper_cpp_engine_mirrors_the_language_api(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'whisper_engine_cpp.py').read_text(encoding='utf-8')
+        self.assertIn('languages: Optional[list] = None', src)
+        self.assertIn('def _language_from_allowed', src)
+        self.assertIn('auto_detect_language', src)
+
+    # --- retry last dictation ---
+    def test_retry_with_nothing_recorded_says_so(self):
+        sm = self._state_manager()
+        sm._last_audio = None
+        self.assertFalse(sm.retry_last_dictation())
+        self.assertIn('Nothing to retry', sm.system_tray.notify.call_args[0][0])
+
+    def test_retry_retranscribes_and_opens_the_capture_window(self):
+        import unittest.mock as mock
+        sm = self._state_manager()
+        sm._last_audio = object()
+        sm.whisper_engine.transcribe_audio.return_value = 'hello there'
+        sm.config_manager = mock.Mock()
+        sm.config_manager.get_postprocess_config.return_value = {}
+        sm.clipboard_manager = mock.Mock(silent_copy_allowed=True)
+        sm.fallback_window = mock.Mock()
+        sm.recent_transcriptions = __import__('collections').deque(maxlen=10)
+        sm.terminal_title = mock.Mock()
+        sm._retry_worker(sm._last_audio)
+        sm.whisper_engine.transcribe_audio.assert_called_once_with(sm._last_audio)
+        self.assertEqual(sm.fallback_window.show.call_args[0][0], 'hello there')
+        sm.clipboard_manager.copy_text.assert_called_once_with('hello there')
+        self.assertFalse(sm.is_processing, 'must release the busy flag')
+
+    def test_tray_offers_retry(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'system_tray.py').read_text(encoding='utf-8')
+        self.assertIn('"Retry last dictation"', src)
+        self.assertIn('has_last_recording()', src)
+
+    def test_pipeline_keeps_the_last_recording_in_memory_only(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'state_manager.py').read_text(encoding='utf-8')
+        self.assertIn('self._last_audio = audio_data', src)
+        body = src[src.index('def retry_last_dictation'):]
+        body = body[:body.index('# Types the last dictation again')]
+        for writes_to_disk in ('open(', 'np.save', 'write_bytes', 'wave.'):
+            self.assertNotIn(writes_to_disk, body)

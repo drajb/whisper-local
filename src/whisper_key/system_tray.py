@@ -307,6 +307,8 @@ class SystemTray:
                 pystray.MenuItem("Settings...", self._open_settings_window),
                 pystray.MenuItem("Hotkey cheat sheet...", self._open_cheat_sheet),
                 pystray.MenuItem("Transcript history...", self._open_history_window),
+                pystray.MenuItem("Retry last dictation", self._retry_last_dictation,
+                                 enabled=lambda item: self.state_manager.has_last_recording()),
             ]
             if autostart.is_supported():
                 menu_items.append(pystray.MenuItem(
@@ -529,6 +531,12 @@ class SystemTray:
 
     def _open_history_window(self, icon=None, item=None):
         self._run_module_in_window('--history', windowless=True)
+
+    def _retry_last_dictation(self, icon=None, item=None):
+        try:
+            self.state_manager.retry_last_dictation()
+        except Exception as e:
+            self.logger.error(f"Retry failed: {e}")
 
     def _toggle_pause(self, icon=None, item=None):
         try:
