@@ -4,6 +4,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
 
 ## [Unreleased]
 
+### Added
+- **Your own typing speed in the stats.** `stats.typing_wpm` (Settings →
+  General → "Your typing speed") replaces the fixed 40 WPM behind the
+  "minutes saved" figure of `--stats` and the daily summary.
+
 ### Fixed
 - **whisper.cpp backend: speech is no longer translated to English.** With
   `language: auto`, nothing was passed to pywhispercpp, whose own default is

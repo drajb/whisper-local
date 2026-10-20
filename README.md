@@ -383,6 +383,7 @@ Delete the file and restart to reset to defaults. Highlights:
 | `postprocess.cleanup` | `light` | `none` / `light` / `medium` / `high`: how much of what you said gets tidied |
 | `postprocess.style` | `""` | `formal` / `casual` / `very_casual` / `verbatim`, or per app in `app_rules.yaml` |
 | `history.retention_days` | `null` | `0` stores no history at all; `7` keeps a week |
+| `stats.typing_wpm` | `40` | Your typing speed, used for the "minutes saved" estimate |
 | `postprocess.snippets` | `[]` | Spoken shortcuts expanded inline |
 | `audio.whisper_mode.enabled` | `false` | Boost quiet speech before transcription |
 | `vad.vad_realtime_enabled` | `true` | Auto-stop on silence |

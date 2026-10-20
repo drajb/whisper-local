@@ -453,6 +453,12 @@ def _build_general_tab(nb, cm, vars_, row_index):
          lambda p: _entry(p, v), row_index,
          note='Blank keeps the newest 2000 dictations. 0 stores none. 7 keeps a week.')
 
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'stats', 'typing_wpm', default=40)))
+    vars_['stats.typing_wpm'] = v
+    _row(tab, 'stats.typing_wpm', 'Your typing speed (WPM)',
+         lambda p: _entry(p, v), row_index,
+         note='Used to estimate the time dictation saves you.')
+
 
 def _build_audio_tab(nb, cm, vars_, row_index):
     import tkinter as tk
@@ -661,6 +667,7 @@ _NUMERIC_PATHS = {
     'audio.whisper_mode.max_gain',
     'hotkey.double_tap_window_ms',
     'history.retention_days',
+    'stats.typing_wpm',
 }
 
 # Shown in the style picker for "no style: use the individual toggles".

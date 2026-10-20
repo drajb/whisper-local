@@ -27,10 +27,17 @@ DIM = "\033[2m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
-WPM_TYPING_BASELINE = 40
+# Fallback for stats.typing_wpm: a typical average typing speed.
+DEFAULT_TYPING_WPM = 40
 CHARS_PER_WORD = 5
 
 logger = logging.getLogger(__name__)
+
+
+# Time it would have taken to type `words` at `typing_wpm`, minus the time
+# spent speaking them. Never negative: a slow dictation saved nothing.
+def _minutes_saved(words: int, speaking_seconds: float, typing_wpm: float) -> float:
+    return max(0.0, (words / typing_wpm) - (speaking_seconds / 60))
 
 
 def _safe_int(value, default=0) -> int:
@@ -65,7 +72,7 @@ def record_transcription(char_count: int, duration_seconds: float, app: Optional
         logger.debug(f"Stats record failed: {e}")
 
 
-def maybe_show_daily_summary(notify_callback) -> Optional[str]:
+def maybe_show_daily_summary(notify_callback, typing_wpm: float = DEFAULT_TYPING_WPM) -> Optional[str]:
     today = datetime.date.today().isoformat()
     marker = Path(get_user_app_data_path()) / DAILY_NOTIFY_MARKER
 
@@ -112,7 +119,7 @@ def maybe_show_daily_summary(notify_callback) -> Optional[str]:
         return None
 
     words = chars // CHARS_PER_WORD
-    minutes_saved = max(0.0, (words / WPM_TYPING_BASELINE) - (seconds / 60))
+    minutes_saved = _minutes_saved(words, seconds, typing_wpm)
     msg = f"Yesterday: {count} dictations, {words:,} words, ~{minutes_saved:.0f} min saved"
     try:
         notify_callback(msg)
@@ -182,7 +189,7 @@ def export_transcripts(dest: str) -> int:
 # `--stats`: renders the whole journal as a console report — totals, time saved
 # (vs a typing-speed baseline), busiest apps, and the current/longest streak.
 # Returns a process exit code so main() can hand it straight to sys.exit().
-def show_stats() -> int:
+def show_stats(typing_wpm: float = DEFAULT_TYPING_WPM) -> int:
     path = Path(get_user_app_data_path()) / STATS_FILE
     if not path.exists():
         print("No transcription history yet — go dictate something!")
@@ -211,9 +218,8 @@ def show_stats() -> int:
     total_chars = sum(_safe_int(e.get('chars')) for e in entries)
     total_seconds = sum(_safe_float(e.get('duration_s')) for e in entries)
     words = total_chars // CHARS_PER_WORD
-    minutes_typing = words / WPM_TYPING_BASELINE
     minutes_speaking = total_seconds / 60
-    saved_minutes = max(0.0, minutes_typing - minutes_speaking)
+    saved_minutes = _minutes_saved(words, total_seconds, typing_wpm)
     avg_wpm = (words / minutes_speaking) if minutes_speaking > 0 else 0
 
     today = datetime.date.today()
@@ -236,7 +242,7 @@ def show_stats() -> int:
     print(f"  {GREEN}{BOLD}{total_chars:>7,}{RESET}  characters delivered")
     print(f"  {GREEN}{BOLD}{words:>7,}{RESET}  words")
     print(f"  {GREEN}{BOLD}{avg_wpm:>7.0f}{RESET}  average WPM ({DIM}{minutes_speaking:.1f} min spoken{RESET})")
-    print(f"  {GREEN}{BOLD}{saved_minutes:>7.1f}{RESET}  minutes saved vs typing at {WPM_TYPING_BASELINE} wpm")
+    print(f"  {GREEN}{BOLD}{saved_minutes:>7.1f}{RESET}  minutes saved vs typing at {typing_wpm:g} wpm")
 
     print(f"\n{BOLD}Streaks{RESET}")
     print(f"  {GREEN}{BOLD}{streak:>7}{RESET}  current day streak")

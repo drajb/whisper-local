@@ -632,6 +632,11 @@ history: # Transcript history (the --history window and the tray's Recent list)
     # Usage stats (counts and durations, never text) are kept regardless.
     retention_days: null
 
+stats: # Usage stats (--stats and the daily "min saved" summary)
+    # Your typing speed in words per minute, used to estimate the time dictation
+    # saves you. 40 is a typical average; a one-minute online typing test gives yours.
+    typing_wpm: 40
+
 update_check: # Opt-in update notifications
     # When enabled, once per day Whisper Local checks the GitHub releases API
     # for a newer version and shows a tray notification if found.
