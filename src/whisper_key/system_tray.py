@@ -296,17 +296,18 @@ class SystemTray:
 
             voice_commands_enabled = self.config_manager.get_setting('voice_commands', 'enabled')
 
-            menu_items = []
-
+            # A left click opens the main window, like other modern tray apps.
+            menu_items = [pystray.MenuItem("Open Whisper Local", self._open_hub_home, default=True)]
             if console.owns_console():
-                menu_items.append(pystray.MenuItem("Show Console", self._show_console, default=True))
-                menu_items.append(pystray.Menu.SEPARATOR)
+                menu_items.append(pystray.MenuItem("Show Console", self._show_console))
+            menu_items.append(pystray.Menu.SEPARATOR)
 
             from . import autostart
             menu_items += [
+                pystray.MenuItem("Notes...", lambda icon, item: self._open_hub('notes')),
+                pystray.MenuItem("Transcribe a file...", lambda icon, item: self._open_hub('transcribe')),
+                pystray.MenuItem("History...", self._open_history_window),
                 pystray.MenuItem("Settings...", self._open_settings_window),
-                pystray.MenuItem("Hotkey cheat sheet...", self._open_cheat_sheet),
-                pystray.MenuItem("Transcript history...", self._open_history_window),
                 pystray.MenuItem("Retry last dictation", self._retry_last_dictation,
                                  enabled=lambda item: self.state_manager.has_last_recording()),
             ]
@@ -326,6 +327,7 @@ class SystemTray:
             menu_items += [
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Add word to dictionary...", self._open_add_word_dialog),
+                pystray.MenuItem("Hotkeys...", self._open_cheat_sheet),
                 pystray.MenuItem("Edit settings file...", self._open_config_file),
                 pystray.MenuItem("Open config folder...", self._open_config_folder),
                 pystray.MenuItem("Open commands file...", self._open_commands_file) if voice_commands_enabled else None,
@@ -526,11 +528,19 @@ class SystemTray:
     def _run_stats_in_window(self, icon=None, item=None):
         self._run_module_in_window('--stats')
 
+    # The main window runs in its own windowless process; if it is already
+    # open, the new process just switches it to `page` and brings it forward.
+    def _open_hub(self, page: str = 'home'):
+        self._run_module_in_window(['--hub', page], windowless=True)
+
+    def _open_hub_home(self, icon=None, item=None):
+        self._open_hub('home')
+
     def _open_settings_window(self, icon=None, item=None):
-        self._run_module_in_window('--settings', windowless=True)
+        self._open_hub('settings')
 
     def _open_history_window(self, icon=None, item=None):
-        self._run_module_in_window('--history', windowless=True)
+        self._open_hub('history')
 
     def _retry_last_dictation(self, icon=None, item=None):
         try:
@@ -555,17 +565,7 @@ class SystemTray:
             self.logger.error(f"Failed to toggle autostart: {e}")
 
     def _open_cheat_sheet(self, icon=None, item=None):
-        try:
-            from .window_launcher import open_in_child_process
-            if open_in_child_process('cheat-sheet'):
-                return
-            from .cheat_sheet import show_cheat_sheet
-            show_cheat_sheet(
-                config_manager=self.config_manager,
-                transforms_manager=getattr(self.state_manager, 'transforms_manager', None),
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to open cheat sheet: {e}")
+        self._open_hub('shortcuts')
 
     def _run_selftest_in_window(self, icon=None, item=None):
         self._run_module_in_window('--selftest')
@@ -617,15 +617,18 @@ class SystemTray:
     # behind the Settings window is the single most-asked "is this broken?"
     # about the tray. The command comes from build_relaunch_command, so a pip
     # install, a venv and the standalone .exe all relaunch the right thing.
-    def _run_module_in_window(self, flag: str, windowless: bool = False):
+    # `flags` is one CLI flag or a list of arguments (e.g. ['--hub', 'notes']).
+    def _run_module_in_window(self, flags, windowless: bool = False):
         import subprocess
         from .utils import build_relaunch_command
+        flags = [flags] if isinstance(flags, str) else list(flags)
+        flag = ' '.join(flags)
         try:
             if windowless:
-                command = build_relaunch_command(windowless=True) + [flag]
+                command = build_relaunch_command(windowless=True) + flags
                 creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             else:
-                command = build_relaunch_command() + [flag]
+                command = build_relaunch_command() + flags
                 creation_flags = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0)
             subprocess.Popen(command, creationflags=creation_flags)
         except Exception as e:

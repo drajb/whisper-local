@@ -5,7 +5,6 @@
 # suggests hotwords from words the user actually dictates. Writes
 # user_settings.yaml directly (round-trip YAML) so it works without a running app.
 
-from .ui_theme import c as _c   # light/dark/system theme (ui_theme.py)
 import logging
 import threading
 from pathlib import Path
@@ -160,23 +159,7 @@ def show_dictionary() -> int:
     return 0
 
 
-# Sizes the dialog to fit what was packed into it, then centres it. A fixed
-# pixel height clipped the Add/Close row off the bottom at 150% display scaling,
-# because fonts grow with DPI and the old 160 px did not. The minimum width is
-# in points so it scales the same way the text does.
-def _size_and_center(root, min_width_points: int):
-    try:
-        root.update_idletasks()
-        width = max(root.winfo_reqwidth(), int(root.winfo_fpixels(f'{min_width_points}p')))
-        height = root.winfo_reqheight()
-        x = (root.winfo_screenwidth() - width) // 2
-        y = (root.winfo_screenheight() - height) // 2
-        root.geometry(f"{width}x{height}+{x}+{y}")
-    except Exception as e:
-        logger.debug(f"Could not size the add-word dialog: {e}")
-
-
-# Opens the small "add a hotword" dialog (tray item / CLI). Singleton-guarded:
+# Opens the small "add a word" dialog (tray item / CLI). Singleton-guarded:
 # re-invoking raises the existing window instead of stacking another Tk root and
 # thread. `on_added` lets the caller refresh live state (e.g. the running engine's
 # hotword list) once a word is actually saved. blocking=True runs the dialog on
@@ -196,49 +179,31 @@ def show_add_word_dialog(on_added=None, blocking: bool = False):
         global _dialog_root
         try:
             import tkinter as tk
+            from .ui.kit import new_window, Button, Field
         except ImportError:
             logger.info("Tkinter unavailable for add-word dialog")
             return
         try:
-            root = tk.Tk()
+            root, kit = new_window("Whisper Local · Add word", size=(420, 250), resizable=False)
+            p = kit.p
             with _dialog_lock:
                 _dialog_root = root
-            root.title("Whisper Local — Add Word")
-            root.configure(bg=_c('#0d1117'))
             try:
                 root.attributes('-topmost', True)
             except Exception:
                 pass
 
-            outer = tk.Frame(root, bg=_c('#0d1117'), padx=14, pady=12)
-            outer.pack(fill='both', expand=True)
-
-            tk.Label(outer, text="Add to your hotword dictionary",
-                     bg=_c('#0d1117'), fg=_c('#3fb950'),
-                     font=('Segoe UI Semibold', 11),
-                     anchor='w').pack(fill='x')
-            tk.Label(outer, text="Names, jargon, acronyms — anything Whisper mishears",
-                     bg=_c('#0d1117'), fg=_c('#7d8590'),
-                     font=('Segoe UI', 9),
-                     anchor='w').pack(fill='x', pady=(2, 10))
+            outer = kit.frame(root, bg=p['bg'])
+            outer.pack(fill='both', expand=True, padx=kit.px(24), pady=kit.px(20))
+            kit.label(outer, "Add to your dictionary", 'title').pack(anchor='w')
+            kit.label(outer, "Names, jargon, acronyms: anything Whisper mishears.", 'small',
+                      'text_muted').pack(anchor='w', pady=(kit.px(2), kit.px(14)))
 
             # master=root, or the variable binds to the first Tk root in the
             # process (the level overlay, on Windows) and entry_var.get() reads
             # that interpreter's empty copy: "Type a word first" on every Add.
             entry_var = tk.StringVar(master=root)
-            entry = tk.Entry(outer, textvariable=entry_var,
-                             bg=_c('#161b22'), fg=_c('#c9d1d9'),
-                             insertbackground=_c('#c9d1d9'),
-                             relief='flat', bd=0,
-                             font=('Segoe UI', 11))
-            entry.pack(fill='x', ipady=6, pady=(0, 12))
-            entry.focus_set()
-
             status_var = tk.StringVar(master=root, value="")
-            tk.Label(outer, textvariable=status_var,
-                     bg=_c('#0d1117'), fg=_c('#7d8590'),
-                     font=('Segoe UI', 9),
-                     anchor='w').pack(fill='x', pady=(0, 8))
 
             def commit(_=None):
                 word = entry_var.get().strip()
@@ -247,13 +212,13 @@ def show_add_word_dialog(on_added=None, blocking: bool = False):
                     return
                 ok = add_word(word)
                 if ok:
-                    status_var.set(f"Added '{word}'. Restart Whisper Local to apply.")
+                    status_var.set(f"Added “{word}”. It applies from your next dictation.")
                     entry_var.set("")
                     if on_added:
                         try: on_added(word)
                         except Exception: pass
                 else:
-                    status_var.set(f"'{word}' is already in the dictionary.")
+                    status_var.set(f"“{word}” is already in your dictionary.")
 
             def close(_=None):
                 global _dialog_root
@@ -262,24 +227,17 @@ def show_add_word_dialog(on_added=None, blocking: bool = False):
                 try: root.destroy()
                 except Exception: pass
 
-            buttons = tk.Frame(outer, bg=_c('#0d1117'))
-            buttons.pack(fill='x')
-
-            tk.Button(buttons, text="Close", command=close,
-                      bg=_c('#161b22'), fg=_c('#c9d1d9'),
-                      activebackground=_c('#30363d'), activeforeground=_c('#c9d1d9'),
-                      bd=0, relief='flat', padx=14, pady=6,
-                      font=('Segoe UI', 9), cursor='hand2').pack(side='right', padx=(8, 0))
-            tk.Button(buttons, text="Add", command=commit,
-                      bg=_c('#3fb950'), fg=_c('#0d1117'),
-                      activebackground=_c('#46c155'), activeforeground=_c('#0d1117'),
-                      bd=0, relief='flat', padx=14, pady=6,
-                      font=('Segoe UI Semibold', 9), cursor='hand2').pack(side='right')
-
-            _size_and_center(root, min_width_points=285)
+            field = Field(outer, kit, entry_var, placeholder="e.g. Kubernetes", on_submit=commit)
+            field.pack(fill='x')
+            tk.Label(outer, textvariable=status_var, bg=p['bg'], fg=p['text_muted'],
+                     font=kit.font('small'), anchor='w').pack(fill='x', pady=(kit.px(8), 0))
+            buttons = kit.frame(outer)
+            buttons.pack(side='bottom', fill='x')
+            Button(buttons, kit, "Add", commit, variant='primary', icon='plus').pack(side='right')
+            Button(buttons, kit, "Close", close).pack(side='right', padx=(0, kit.px(8)))
+            field.focus()
 
             root.protocol("WM_DELETE_WINDOW", close)
-            root.bind('<Return>', commit)
             root.bind('<Escape>', close)
             root.mainloop()
         except Exception as e:

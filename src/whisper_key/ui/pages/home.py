@@ -79,7 +79,8 @@ class Page(BasePage):
         )
         for column, (icon, label, value, note) in enumerate(stats):
             card = Card(cards, kit, padding=16)
-            card.grid(row=0, column=column, sticky='nsew', padx=(0 if column == 0 else kit.px(12), 0))
+            card.grid(row=0, column=column, sticky='nsew',
+                      padx=(0 if column == 0 else kit.px(6), 0 if column == 3 else kit.px(6)))
             cards.grid_columnconfigure(column, weight=1, uniform='stats')
             b = card.body
             top = tk.Frame(b, bg=p['surface'])

@@ -199,11 +199,33 @@ class StateManager:
             self._rephrase_selection = ''
         self._continuous_aborted = True
         with self._recorder_lock:
-            self.audio_recorder.cancel_recording()
+            cancelled_audio = self.audio_recorder.cancel_recording()
         self.audio_feedback.play_cancel_sound()
         self._update_ui_state("idle")
+        recoverable = self._keep_cancelled_audio(cancelled_audio)
         if self.level_overlay:
-            self.level_overlay.hide()
+            if recoverable:
+                self.level_overlay.flash_failure("Cancelled · tray > Retry brings it back")
+            else:
+                self.level_overlay.hide()
+
+    # A cancel can be a slip of the finger at the end of a long dictation, so
+    # a recording of any real length stays recoverable through "Retry last
+    # dictation" until the next one replaces it. In memory only, as always.
+    CANCEL_KEEP_SECONDS = 1.0
+
+    def _keep_cancelled_audio(self, audio) -> bool:
+        if audio is None:
+            return False
+        try:
+            duration = self.audio_recorder.get_audio_duration(audio)
+        except Exception:
+            return False
+        if duration < self.CANCEL_KEEP_SECONDS:
+            return False
+        self._last_audio = audio
+        self.logger.info(f"Cancelled recording ({duration:.1f}s) kept for Retry last dictation")
+        return True
     
     def cancel_recording_hotkey_pressed(self) -> bool:
         current_state = self.get_current_state()

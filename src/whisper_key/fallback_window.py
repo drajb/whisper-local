@@ -9,23 +9,15 @@
 # ONLY copy of the text, so it never copies on its own — the Copy button is
 # there for when they want it.
 
-from .ui_theme import c as _c   # light/dark/system theme (ui_theme.py)
 import logging
 import threading
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-WIDTH = 520
-MIN_HEIGHT = 180
-MAX_HEIGHT = 480
-BG = _c('#0d1117')
-PANEL = _c('#161b22')
-BORDER = _c('#30363d')
-TEXT = _c('#c9d1d9')
-DIM = _c('#7d8590')
-ACCENT = _c('#3fb950')
-ACCENT_HOVER = _c('#46c155')
+WIDTH = 540        # logical pixels; the kit scales them for the display
+MIN_LINES = 3
+MAX_LINES = 14
 
 
 class FallbackWindow:
@@ -90,75 +82,70 @@ class FallbackWindow:
         try:
             import tkinter as tk
             import pyperclip
+            from .ui.kit import new_window, Button, Card, ThinScrollbar
 
-            root = tk.Tk()
-            root.title("Whisper Local — Dictation captured")
-            root.configure(bg=BG)
+            root, kit = new_window("Whisper Local · Dictation captured", size=(WIDTH, 300),
+                                   resizable=True)
+            p = kit.p
             try:
                 root.attributes('-topmost', True)
             except Exception:
                 pass
 
-            line_count = max(3, min(transcript.count('\n') + 1 + len(transcript) // 60, 18))
-            height = min(MAX_HEIGHT, max(MIN_HEIGHT, 110 + line_count * 18))
+            outer = kit.frame(root, bg=p['bg'])
+            outer.pack(fill='both', expand=True, padx=kit.px(22), pady=kit.px(18))
 
-            try:
-                root.update_idletasks()
-                sw = root.winfo_screenwidth()
-                sh = root.winfo_screenheight()
-                x = (sw - WIDTH) // 2
-                y = (sh - height) // 2
-                root.geometry(f"{WIDTH}x{height}+{x}+{y}")
-            except Exception:
-                root.geometry(f"{WIDTH}x{height}")
+            head = kit.frame(outer)
+            head.pack(fill='x')
+            badge = tk.Canvas(head, width=kit.px(40), height=kit.px(40), bg=p['bg'], highlightthickness=0)
+            kit.round_rect(badge, 0, 0, kit.px(40), kit.px(40), kit.px(11), p['accent_soft'])
+            badge.create_image(kit.px(20), kit.px(20), image=kit.icon('copy', 20, p['accent']))
+            badge.pack(side='left', anchor='n')
+            titles = kit.frame(head)
+            titles.pack(side='left', fill='x', expand=True, padx=(kit.px(12), 0))
+            kit.label(titles, "Dictation captured", 'title').pack(anchor='w')
+            kit.label(titles, reason, 'small', 'text_muted', wrap=True).pack(fill='x', pady=(kit.px(2), 0))
 
-            outer = tk.Frame(root, bg=BG, bd=0, highlightthickness=0)
-            outer.pack(fill='both', expand=True, padx=14, pady=12)
+            # Footer first, so it keeps its place when the window is short.
+            button_row = kit.frame(outer)
+            button_row.pack(side='bottom', fill='x', pady=(kit.px(14), 0))
 
-            tk.Label(outer, text="📋  Dictation captured",
-                     bg=BG, fg=ACCENT,
-                     font=('Segoe UI Semibold', 11),
-                     anchor='w').pack(fill='x')
-
-            tk.Label(outer, text=reason,
-                     bg=BG, fg=DIM,
-                     font=('Segoe UI', 9),
-                     anchor='w', wraplength=WIDTH - 30, justify='left').pack(fill='x', pady=(2, 8))
-
-            text_frame = tk.Frame(outer, bg=BORDER, bd=0, highlightthickness=0)
-            text_frame.pack(fill='both', expand=True, pady=(0, 10))
-
+            card = Card(outer, kit, padding=12, fill=p['field'], stretch=True)
+            card.pack(fill='both', expand=True, pady=(kit.px(14), 0))
+            scrollbar = ThinScrollbar(card.body, kit, bg=p['field'])
+            scrollbar.pack(side='right', fill='y')
             text_widget = tk.Text(
-                text_frame, wrap='word', bg=PANEL, fg=TEXT,
-                insertbackground=TEXT, bd=0, highlightthickness=0,
-                padx=10, pady=8,
-                font=('Segoe UI', 10),
-                relief='flat',
-            )
-            text_widget.pack(fill='both', expand=True, padx=1, pady=1)
+                card.body, wrap='word', bg=p['field'], fg=p['text'], insertbackground=p['accent'],
+                selectbackground=p['selection'], selectforeground=p['text'],
+                bd=0, highlightthickness=0, relief='flat', font=kit.font('body'),
+                spacing3=kit.px(4), padx=kit.px(2))
+            text_widget.pack(side='left', fill='both', expand=True)
+            text_widget.configure(yscrollcommand=scrollbar.set)
+            scrollbar.command = text_widget.yview
             text_widget.insert('1.0', transcript)
             text_widget.tag_add('sel', '1.0', 'end-1c')
 
-            button_row = tk.Frame(outer, bg=BG)
-            button_row.pack(fill='x')
+            # Grow with the transcript, within reason.
+            lines = max(MIN_LINES, min(MAX_LINES, transcript.count(chr(10)) + 1 + len(transcript) // 64))
+            height = kit.px(190) + lines * kit.line_height('body')
+            root.geometry(f"{kit.px(WIDTH)}x{height}")
 
             # master=root: a Variable without one binds to the first Tk root in
             # the process (the level overlay, on Windows), and this label then
             # shows that interpreter's empty copy instead of the text below.
             status_var = tk.StringVar(master=root, value=(
-                "Already on your clipboard — just paste anywhere with Ctrl+V."
+                "Already on your clipboard: paste anywhere with Ctrl+V."
                 if allow_clipboard else
-                "Clipboard copying is off — press Copy if you want it there."))
-            status = tk.Label(button_row, textvariable=status_var,
-                              bg=BG, fg=DIM, font=('Segoe UI', 9))
-            status.pack(side='left')
+                "Clipboard copying is off. Press Copy if you want it there."))
+            tk.Label(button_row, textvariable=status_var, bg=p['bg'], fg=p['text_muted'],
+                     font=kit.font('small')).pack(side='left')
 
             def _copy_again(_=None):
                 try:
                     pyperclip.copy(transcript)
                     status_var.set("Copied! Paste anywhere with Ctrl+V.")
-                    btn_copy.configure(text="✓ Copied")
-                    root.after(1200, lambda: btn_copy.configure(text="Copy"))
+                    btn_copy.configure_text("Copied")
+                    root.after(1400, lambda: btn_copy.configure_text("Copy"))
                 except Exception as e:
                     status_var.set(f"Copy failed: {e}")
 
@@ -168,23 +155,9 @@ class FallbackWindow:
                 except Exception:
                     pass
 
-            btn_close = tk.Button(
-                button_row, text="Close", command=_dismiss,
-                bg=PANEL, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
-                bd=0, relief='flat', padx=14, pady=6,
-                font=('Segoe UI', 9),
-                cursor='hand2',
-            )
-            btn_close.pack(side='right', padx=(8, 0))
-
-            btn_copy = tk.Button(
-                button_row, text="Copy", command=_copy_again,
-                bg=ACCENT, fg=_c('#0d1117'), activebackground=ACCENT_HOVER, activeforeground=_c('#0d1117'),
-                bd=0, relief='flat', padx=14, pady=6,
-                font=('Segoe UI Semibold', 9),
-                cursor='hand2',
-            )
+            btn_copy = Button(button_row, kit, "Copy", _copy_again, variant='primary', icon='copy')
             btn_copy.pack(side='right')
+            Button(button_row, kit, "Close", _dismiss).pack(side='right', padx=(0, kit.px(8)))
 
             root.bind('<Escape>', _dismiss)
             root.bind('<Control-c>', _copy_again)

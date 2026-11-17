@@ -1,5 +1,5 @@
 # window_launcher.py
-# Opens the app's small Tk windows (fallback, cheat sheet, add-word, history) in
+# Opens the app's small Tk windows (dictation captured, add word) in
 # a child process on platforms where Tk must own the main thread (macOS). In the
 # running app that thread is busy with the menu-bar loop, and a Tk root on a
 # worker thread aborts the whole process (issue #14). Elsewhere it's a no-op.
@@ -13,7 +13,7 @@ import threading
 logger = logging.getLogger(__name__)
 
 # The --window names main.py accepts; keep in sync with its argparse choices.
-WINDOW_NAMES = ('cheat-sheet', 'add-word', 'fallback', 'history')
+WINDOW_NAMES = ('add-word', 'fallback')
 
 # The open child per window name, so a second tray click doesn't stack another
 # copy (the in-process windows have the same singleton guard). Fallback windows
@@ -72,15 +72,9 @@ def read_payload(stream) -> dict:
 # returns the process exit code once it closes.
 def run_window(name: str, stream) -> int:
     payload = read_payload(stream)
-    if name == 'cheat-sheet':
-        from .cheat_sheet import show_cheat_sheet
-        show_cheat_sheet(blocking=True)
-    elif name == 'add-word':
+    if name == 'add-word':
         from .dictionary import show_add_word_dialog
         show_add_word_dialog(blocking=True)
-    elif name == 'history':
-        from .history_window import show_history
-        show_history(blocking=True)
     elif name == 'fallback':
         transcript = payload.get('transcript') or ''
         if not transcript:

@@ -59,7 +59,7 @@ class Page(BasePage):
         kit, p = self.kit, self.p
         self.all_entries = load_transcripts()
         self.shown = BATCH
-        self.action('Suggest words', self._suggest_words, icon='sparkles')
+        self.action('Suggest words', lambda: open_suggest_dialog(self.hub), icon='sparkles')
         self.action('Export', self._export, icon='download')
 
         self.query = tk.StringVar(master=self.hub.root)
@@ -144,89 +144,13 @@ class Page(BasePage):
         actions = tk.Frame(row, bg=bg)
         actions.pack(side='right', anchor='n')
         Button(actions, kit, '', copy, variant='ghost', icon='copy', size='sm', bg=bg).pack(side='left')
-        Button(actions, kit, '', lambda: self._fix_dialog(text), variant='ghost', icon='wand',
+        Button(actions, kit, '', lambda: open_fix_dialog(self.hub, text), variant='ghost', icon='wand',
                size='sm', bg=bg).pack(side='left')
         words = tk.Frame(row, bg=bg)
         words.pack(side='left', fill='x', expand=True, padx=(kit.px(8), kit.px(8)))
         kit.label(words, text, 'body', bg=bg, wrap=True).pack(fill='x')
         if entry.get('app'):
             kit.label(words, entry['app'], 'caption', 'text_faint', bg=bg).pack(anchor='w', pady=(kit.px(3), 0))
-
-    # ── Dialogs ──────────────────────────────────────────────────────────
-
-    # "Fix everywhere": what Whisper wrote -> what you meant, for good.
-    def _fix_dialog(self, source_text: str):
-        from ...corrections import add_replacement
-        dialog, kit = new_window('Fix everywhere', size=(460, 330), resizable=False, master=self.hub.root)
-        dialog.transient(self.hub.root)
-        p = kit.p
-        body = kit.frame(dialog, bg=p['bg'])
-        body.pack(fill='both', expand=True, padx=kit.px(24), pady=kit.px(20))
-        kit.label(body, 'Fix a word everywhere', 'title').pack(anchor='w')
-        kit.label(body, 'Every future dictation gets this correction. Matching ignores case '
-                  'and whole words only.', 'small', 'text_muted', wrap=True).pack(fill='x', pady=(kit.px(4), kit.px(14)))
-        wrong, right = tk.StringVar(master=dialog), tk.StringVar(master=dialog)
-        kit.label(body, 'Whisper writes', 'small_strong').pack(anchor='w')
-        first = Field(body, kit, wrong, placeholder='e.g. cooper netties')
-        first.pack(fill='x', pady=(kit.px(4), kit.px(10)))
-        kit.label(body, 'You meant', 'small_strong').pack(anchor='w')
-        Field(body, kit, right, placeholder='e.g. Kubernetes').pack(fill='x', pady=(kit.px(4), kit.px(14)))
-        message = kit.label(body, '', 'small', 'danger')
-        message.pack(anchor='w')
-
-        def save():
-            if add_replacement(wrong.get(), right.get()):
-                dialog.destroy()
-                self.hub.toast('Correction saved: applies to your next dictation', 'success')
-            else:
-                message.configure(text='Enter the misheard text and a different correction.')
-        row = kit.frame(body)
-        row.pack(side='bottom', fill='x')
-        Button(row, kit, 'Save correction', save, variant='primary').pack(side='right')
-        Button(row, kit, 'Cancel', dialog.destroy).pack(side='right', padx=(0, kit.px(8)))
-        dialog.bind('<Return>', lambda e: save())
-        dialog.bind('<Escape>', lambda e: dialog.destroy())
-        first.focus()
-
-    def _suggest_words(self):
-        from ...dictionary import add_word, suggest_hotwords_from_history
-        candidates = suggest_hotwords_from_history()
-        if not candidates:
-            self.hub.toast('No strong suggestions yet. Keep dictating!')
-            return
-        dialog, kit = new_window('Suggested words', size=(420, 520), master=self.hub.root)
-        dialog.transient(self.hub.root)
-        p = kit.p
-        body = kit.frame(dialog, bg=p['bg'])
-        body.pack(fill='both', expand=True, padx=kit.px(24), pady=kit.px(20))
-        kit.label(body, 'Words you use often', 'title').pack(anchor='w')
-        kit.label(body, 'Names and terms from your history. Turn on the ones to add to your '
-                  'dictionary so Whisper spells them right.', 'small', 'text_muted',
-                  wrap=True).pack(fill='x', pady=(kit.px(4), kit.px(12)))
-        buttons = kit.frame(body)
-        buttons.pack(side='bottom', fill='x', pady=(kit.px(12), 0))
-        area = ScrollFrame(body, kit, bg=p['bg'])
-        area.pack(fill='both', expand=True)
-        card = Card(area.inner, kit, padding=4)
-        card.pack(fill='x', padx=(0, kit.px(8)))
-        choices = []
-        for i, (word, count) in enumerate(candidates):
-            if i:
-                tk.Frame(card.body, bg=p['border'], height=max(1, kit.px(1))).pack(fill='x', padx=kit.px(12))
-            row = tk.Frame(card.body, bg=p['surface'])
-            row.pack(fill='x', padx=kit.px(12), pady=kit.px(8))
-            var = tk.BooleanVar(master=dialog, value=False)
-            choices.append((word, var))
-            Toggle(row, kit, var, bg=p['surface']).pack(side='right')
-            kit.label(row, word, 'body_strong', bg=p['surface']).pack(side='left')
-            kit.label(row, f"  {count}×", 'small', 'text_faint', bg=p['surface']).pack(side='left')
-
-        def add():
-            added = sum(1 for word, var in choices if var.get() and add_word(word))
-            dialog.destroy()
-            self.hub.toast(f"Added {added} word{'s' if added != 1 else ''} to your dictionary", 'success')
-        Button(buttons, kit, 'Add to dictionary', add, variant='primary').pack(side='right')
-        Button(buttons, kit, 'Cancel', dialog.destroy).pack(side='right', padx=(0, kit.px(8)))
 
     def _export(self):
         from tkinter import filedialog
@@ -243,3 +167,82 @@ class Page(BasePage):
         with open(path, 'w', encoding='utf-8') as f:
             f.write(export_text(entries, markdown=path.lower().endswith('.md')))
         self.hub.toast(f"Exported {len(entries):,} dictations", 'success')
+
+
+# ── Dialogs (also used by the Dictionary page) ───────────────────────────────
+
+# "Fix everywhere": what Whisper wrote -> what you meant, for good.
+def open_fix_dialog(hub, source_text: str = ''):
+    from ...corrections import add_replacement
+    dialog, kit = new_window('Fix everywhere', size=(460, 330), resizable=False, master=hub.root)
+    dialog.transient(hub.root)
+    p = kit.p
+    body = kit.frame(dialog, bg=p['bg'])
+    body.pack(fill='both', expand=True, padx=kit.px(24), pady=kit.px(20))
+    kit.label(body, 'Fix a word everywhere', 'title').pack(anchor='w')
+    kit.label(body, 'Every future dictation gets this correction. Matching ignores case '
+              'and whole words only.', 'small', 'text_muted', wrap=True).pack(fill='x', pady=(kit.px(4), kit.px(14)))
+    wrong, right = tk.StringVar(master=dialog), tk.StringVar(master=dialog)
+    kit.label(body, 'Whisper writes', 'small_strong').pack(anchor='w')
+    first = Field(body, kit, wrong, placeholder='e.g. cooper netties')
+    first.pack(fill='x', pady=(kit.px(4), kit.px(10)))
+    kit.label(body, 'You meant', 'small_strong').pack(anchor='w')
+    Field(body, kit, right, placeholder='e.g. Kubernetes').pack(fill='x', pady=(kit.px(4), kit.px(14)))
+    message = kit.label(body, '', 'small', 'danger')
+    message.pack(anchor='w')
+
+    def save():
+        if add_replacement(wrong.get(), right.get()):
+            dialog.destroy()
+            hub.toast('Correction saved: applies to your next dictation', 'success')
+        else:
+            message.configure(text='Enter the misheard text and a different correction.')
+    row = kit.frame(body)
+    row.pack(side='bottom', fill='x')
+    Button(row, kit, 'Save correction', save, variant='primary').pack(side='right')
+    Button(row, kit, 'Cancel', dialog.destroy).pack(side='right', padx=(0, kit.px(8)))
+    dialog.bind('<Return>', lambda e: save())
+    dialog.bind('<Escape>', lambda e: dialog.destroy())
+    first.focus()
+
+def open_suggest_dialog(hub, on_added=None):
+    from ...dictionary import add_word, suggest_hotwords_from_history
+    candidates = suggest_hotwords_from_history()
+    if not candidates:
+        hub.toast('No strong suggestions yet. Keep dictating!')
+        return
+    dialog, kit = new_window('Suggested words', size=(420, 520), master=hub.root)
+    dialog.transient(hub.root)
+    p = kit.p
+    body = kit.frame(dialog, bg=p['bg'])
+    body.pack(fill='both', expand=True, padx=kit.px(24), pady=kit.px(20))
+    kit.label(body, 'Words you use often', 'title').pack(anchor='w')
+    kit.label(body, 'Names and terms from your history. Turn on the ones to add to your '
+              'dictionary so Whisper spells them right.', 'small', 'text_muted',
+              wrap=True).pack(fill='x', pady=(kit.px(4), kit.px(12)))
+    buttons = kit.frame(body)
+    buttons.pack(side='bottom', fill='x', pady=(kit.px(12), 0))
+    area = ScrollFrame(body, kit, bg=p['bg'])
+    area.pack(fill='both', expand=True)
+    card = Card(area.inner, kit, padding=4)
+    card.pack(fill='x', padx=(0, kit.px(8)))
+    choices = []
+    for i, (word, count) in enumerate(candidates):
+        if i:
+            tk.Frame(card.body, bg=p['border'], height=max(1, kit.px(1))).pack(fill='x', padx=kit.px(12))
+        row = tk.Frame(card.body, bg=p['surface'])
+        row.pack(fill='x', padx=kit.px(12), pady=kit.px(8))
+        var = tk.BooleanVar(master=dialog, value=False)
+        choices.append((word, var))
+        Toggle(row, kit, var, bg=p['surface']).pack(side='right')
+        kit.label(row, word, 'body_strong', bg=p['surface']).pack(side='left')
+        kit.label(row, f"  {count}×", 'small', 'text_faint', bg=p['surface']).pack(side='left')
+
+    def add():
+        added = sum(1 for word, var in choices if var.get() and add_word(word))
+        dialog.destroy()
+        hub.toast(f"Added {added} word{'s' if added != 1 else ''} to your dictionary", 'success')
+        if on_added:
+            on_added()
+    Button(buttons, kit, 'Add to dictionary', add, variant='primary').pack(side='right')
+    Button(buttons, kit, 'Cancel', dialog.destroy).pack(side='right', padx=(0, kit.px(8)))

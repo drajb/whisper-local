@@ -177,8 +177,10 @@ class Kit:
 
     # The four antialiased corner pieces of a rounded rectangle with radius
     # `r` device pixels, filled with `fill` and outlined `outline` (or none).
-    def _corners(self, r: int, fill: str, outline: str = None, border: int = 1):
-        key = ('corners', r, fill, outline, border)
+    # antialias=False gives hard edges: needed on a colour-keyed window (the
+    # recording pill), where half-transparent edge pixels show as a dark fringe.
+    def _corners(self, r: int, fill: str, outline: str = None, border: int = 1, antialias: bool = True):
+        key = ('corners', r, fill, outline, border, antialias)
         if key in self._images:
             return self._images[key]
         from PIL import Image, ImageDraw, ImageTk
@@ -192,6 +194,9 @@ class Kit:
         else:
             draw.ellipse((0, 0, big - 1, big - 1), fill=_hex_rgb(fill) + (255,))
         image = image.resize((2 * r, 2 * r), Image.LANCZOS)
+        if not antialias:
+            alpha = image.getchannel('A').point(lambda a: 255 if a >= 128 else 0)
+            image.putalpha(alpha)
         pieces = (image.crop((0, 0, r, r)), image.crop((r, 0, 2 * r, r)),
                   image.crop((0, r, r, 2 * r)), image.crop((r, r, 2 * r, 2 * r)))
         self._images[key] = tuple(ImageTk.PhotoImage(p, master=self.root) for p in pieces)
@@ -199,11 +204,12 @@ class Kit:
 
     # Draws a rounded rectangle on `canvas` from corner images and flat
     # rectangles, tagged `tag` so callers can delete or restack it.
-    def round_rect(self, canvas, x0, y0, x1, y1, r, fill, outline=None, tag='shape', border=None):
+    def round_rect(self, canvas, x0, y0, x1, y1, r, fill, outline=None, tag='shape', border=None,
+                   antialias=True):
         x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
         r = int(max(1, min(r, (x1 - x0) // 2, (y1 - y0) // 2)))
         border = border or max(1, self.px(1))
-        tl, tr, bl, br = self._corners(r, fill, outline, border)
+        tl, tr, bl, br = self._corners(r, fill, outline, border, antialias)
         canvas.create_image(x0, y0, image=tl, anchor='nw', tags=tag)
         canvas.create_image(x1 - r, y0, image=tr, anchor='nw', tags=tag)
         canvas.create_image(x0, y1 - r, image=bl, anchor='nw', tags=tag)

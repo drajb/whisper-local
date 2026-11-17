@@ -5,7 +5,6 @@
 # minimal: 3 tips + a privacy promise, no settings, no wizard. The full
 # wizard lives in setup_wizard.py for users who run `--setup` explicitly.
 
-from .ui_theme import c as _c   # light/dark/system theme (ui_theme.py)
 import logging
 import threading
 from pathlib import Path
@@ -81,75 +80,70 @@ def show_welcome_window(on_close=None, hotkey_label: str = "Ctrl+Win", shutdown_
 def _run_welcome(on_close, hotkey_label, shutdown_event=None):
     try:
         import tkinter as tk
+        from .ui.kit import new_window, Button, Toggle, Card
     except ImportError:
         logger.warning("Tkinter unavailable — skipping welcome window")
         if on_close:
             on_close()
         return
 
-    BG = _c('#0d1117')
-    BG2 = _c('#161b22')
-    FG = _c('#c9d1d9')
-    FG_DIM = _c('#8b949e')
-    ACCENT = _c('#1f6feb')
-
-    root = tk.Tk()
-    root.title("Welcome to Whisper Local")
-    root.geometry("560x560")
-    root.configure(bg=BG)
-    root.resizable(False, False)
+    root, kit = new_window("Welcome to Whisper Local", size=(580, 640), resizable=False)
+    p = kit.p
     try:
         root.attributes('-topmost', True)
     except Exception:
         pass
 
-    container = tk.Frame(root, bg=BG)
-    container.pack(fill='both', expand=True, padx=24, pady=20)
+    container = kit.frame(root, bg=p['bg'])
+    container.pack(fill='both', expand=True, padx=kit.px(32), pady=kit.px(26))
 
-    tk.Label(container, text="👋  Welcome to Whisper Local",
-             bg=BG, fg=FG, font=('Segoe UI', 16, 'bold')).pack(anchor='w')
-    tk.Label(container, text="Free, fully offline AI dictation. Three quick things:",
-             bg=BG, fg=FG_DIM, font=('Segoe UI', 10)).pack(anchor='w', pady=(2, 14))
+    head = kit.frame(container)
+    head.pack(fill='x')
+    tk.Label(head, image=kit.brand_mark(48), bg=p['bg']).pack(side='left')
+    titles = kit.frame(head)
+    titles.pack(side='left', padx=(kit.px(14), 0))
+    kit.label(titles, "Welcome to Whisper Local", 'title').pack(anchor='w')
+    kit.label(titles, "Free, private dictation that never leaves your computer.", 'small',
+              'text_muted').pack(anchor='w', pady=(kit.px(2), 0))
 
     items = [
-        ("1.", f"Hold {hotkey_label} anywhere, speak, release.",
-         "Your words appear at the cursor in any app — chat, code, browser, terminal."),
-        ("2.", "The tray icon shows status & settings.",
-         "On Windows the tray hides icons by default — click the ^ arrow on the taskbar "
-         "and drag the Whisper Local icon out for one-click access."),
-        ("3.", "If something's off, the tray icon can diagnose it.",
-         "Right-click it → Help & diagnostics → Run diagnostics. It checks the mic, "
-         "permissions, the model and the hotkeys and says what to fix."),
+        ("1", f"Hold {hotkey_label} anywhere, speak, let go.",
+         "Your words appear at the cursor in any app: chat, email, code, the browser."),
+        ("2", "Everything else lives in the tray icon.",
+         "Click it to open Whisper Local: history, notes, your dictionary and settings. "
+         "On Windows, drag it out of the ^ overflow so it's always one click away."),
+        ("3", "If something's off, it can tell you why.",
+         "Help & docs → Run diagnostics checks the mic, permissions, model and hotkeys."),
     ]
-
-    for num, title, body in items:
-        row = tk.Frame(container, bg=BG2, bd=0)
-        row.pack(fill='x', pady=4)
-        inner = tk.Frame(row, bg=BG2)
-        inner.pack(fill='x', padx=14, pady=10)
-        tk.Label(inner, text=num, bg=BG2, fg=ACCENT,
-                 font=('Segoe UI', 12, 'bold')).pack(side='left', anchor='n')
-        body_frame = tk.Frame(inner, bg=BG2)
-        body_frame.pack(side='left', fill='x', expand=True, padx=(10, 0))
-        tk.Label(body_frame, text=title, bg=BG2, fg=FG,
-                 font=('Segoe UI', 10, 'bold'),
-                 anchor='w', justify='left', wraplength=440).pack(fill='x')
-        tk.Label(body_frame, text=body, bg=BG2, fg=FG_DIM,
-                 font=('Segoe UI', 9),
-                 anchor='w', justify='left', wraplength=440).pack(fill='x', pady=(2, 0))
+    steps = Card(container, kit, padding=8)
+    steps.pack(fill='x', pady=(kit.px(22), 0))
+    for i, (num, title, body) in enumerate(items):
+        if i:
+            tk.Frame(steps.body, bg=p['border'], height=max(1, kit.px(1))).pack(fill='x', padx=kit.px(10))
+        row = tk.Frame(steps.body, bg=p['surface'])
+        row.pack(fill='x', padx=kit.px(10), pady=kit.px(10))
+        badge = tk.Canvas(row, width=kit.px(28), height=kit.px(28), bg=p['surface'], highlightthickness=0)
+        kit.round_rect(badge, 0, 0, kit.px(28), kit.px(28), kit.px(14), p['accent_soft'])
+        badge.create_text(kit.px(14), kit.px(14), text=num, fill=p['accent'], font=kit.font('small_strong'))
+        badge.pack(side='left', anchor='n')
+        text = tk.Frame(row, bg=p['surface'])
+        text.pack(side='left', fill='x', expand=True, padx=(kit.px(12), 0))
+        kit.label(text, title, 'body_strong', bg=p['surface'], wrap=True).pack(fill='x')
+        kit.label(text, body, 'small', 'text_muted', bg=p['surface'], wrap=True).pack(fill='x', pady=(kit.px(2), 0))
 
     # Somewhere to try it before the window closes. Seeing their own words land
     # here is the moment it clicks for most people, and it proves the hotkey,
     # the mic and the paste all work while the instructions are still on
     # screen. The hotkeys are already live by the time this window opens.
-    try_box = tk.Text(container, height=3, bg=BG2, fg=FG, insertbackground=FG,
-                      bd=0, highlightthickness=1, highlightbackground=ACCENT,
-                      highlightcolor=ACCENT, font=('Segoe UI', 10), wrap='word',
-                      padx=10, pady=8)
+    try_card = Card(container, kit, padding=12, fill=p['field'])
+    try_card.pack(fill='x', pady=(kit.px(16), 0))
+    try_box = tk.Text(try_card.body, height=3, bg=p['field'], fg=p['text'], insertbackground=p['accent'],
+                      bd=0, highlightthickness=0, font=kit.font('body'), wrap='word',
+                      selectbackground=p['selection'])
     try_box.insert('1.0', f"Try it now: click here, hold {hotkey_label}, say something, let go.")
     try_box.tag_add('hint', '1.0', 'end')
-    try_box.tag_config('hint', foreground=FG_DIM)
-    try_box.pack(fill='x', pady=(12, 0))
+    try_box.tag_config('hint', foreground=p['text_faint'])
+    try_box.pack(fill='x')
 
     # The hint goes on the first click or keystroke. Bound on the widget, which
     # Tk runs before the Text class's own paste handler, so a pasted dictation
@@ -161,29 +155,22 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
     for sequence in ('<Button-1>', '<Key>', '<<Paste>>'):
         try_box.bind(sequence, _clear_hint, add='+')
 
-    tk.Label(container,
-             text="No audio or transcripts ever leave your machine. Promise.",
-             bg=BG, fg=FG_DIM, font=('Segoe UI', 9, 'italic')).pack(anchor='w', pady=(14, 0))
-
-    # Opt-in autostart: offered here, off unless the user ticks it. Only shown on
-    # platforms where we can actually wire it up (Windows / macOS).
+    # Opt-in autostart: offered here, off unless the user turns it on. Only shown
+    # on platforms where we can actually wire it up (Windows / macOS).
     from . import autostart
     # The variable has to belong to this window. Without a master it goes to the
     # first Tk root in the process, which on macOS is the hidden root from
     # platform/macos/app.py. The tick then landed in this window's interpreter
     # while get() read the hidden root's copy, which stayed False (issue #17).
     autostart_var = tk.BooleanVar(master=root, value=False)
+    bottom = kit.frame(container)
+    bottom.pack(side='bottom', fill='x')
     if autostart.is_supported():
-        cb = tk.Checkbutton(
-            container, variable=autostart_var,
-            text="  Start Whisper Local automatically when I log in",
-            bg=BG, fg=FG, selectcolor=BG2, activebackground=BG, activeforeground=FG,
-            font=('Segoe UI', 9), anchor='w', bd=0, highlightthickness=0,
-        )
-        cb.pack(anchor='w', pady=(10, 0))
-
-    btn_frame = tk.Frame(container, bg=BG)
-    btn_frame.pack(fill='x', pady=(14, 0))
+        toggle_row = kit.frame(container)
+        toggle_row.pack(side='bottom', fill='x', pady=(0, kit.px(16)))
+        Toggle(toggle_row, kit, autostart_var).pack(side='left')
+        kit.label(toggle_row, "Start Whisper Local when I sign in", 'body').pack(side='left', padx=(kit.px(10), 0))
+    kit.label(bottom, "No audio or text ever leaves this computer.", 'caption', 'text_faint').pack(side='left')
 
     dismissed = False
 
@@ -200,9 +187,7 @@ def _run_welcome(on_close, hotkey_label, shutdown_event=None):
                 logger.debug(f"Autostart enable from welcome failed: {e}")
         root.quit()
 
-    tk.Button(btn_frame, text="Got it — let's dictate",
-              command=_done, bg=ACCENT, fg='white', relief='flat',
-              padx=22, pady=6, font=('Segoe UI', 10, 'bold')).pack(side='right')
+    Button(bottom, kit, "Let's dictate", _done, variant='primary', size='lg').pack(side='right')
 
     root.protocol("WM_DELETE_WINDOW", _done)
     if shutdown_event is not None:

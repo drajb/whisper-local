@@ -428,13 +428,24 @@ class AudioRecorder:
     def get_recording_peak(self) -> float:
         return self._recording_peak
 
-    def cancel_recording(self):
+    # Stops without transcribing, but hands the audio back so a cancel made by
+    # mistake can still be recovered ("Retry last dictation"). None when
+    # nothing was recording.
+    def cancel_recording(self) -> Optional[np.ndarray]:
         if not self.is_recording:
-            return
+            return None
         with self._buffer_lock:
+            snapshot = list(self._buffer)
             self.is_recording = False
             self._buffer.clear()
         self.recording_start_time = None
+        if not snapshot:
+            return None
+        try:
+            return self._build_audio_array(snapshot)
+        except Exception as e:
+            self.logger.debug(f"Could not keep the cancelled audio: {e}")
+            return None
 
     def shutdown(self):
         self._capture_running = False
