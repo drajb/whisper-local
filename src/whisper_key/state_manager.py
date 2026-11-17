@@ -495,8 +495,18 @@ class StateManager:
     # said, so check one second in and say so while they're still talking
     # (Wispr Flow does the same). A real mic, even a quiet one, has a noise
     # floor far above this threshold, so speech pauses never trip it.
+    #
+    # Exact zeros are not always a fault, though. Noise-gated virtual mics
+    # (NVIDIA Broadcast, Krisp, some headset drivers) output digital silence
+    # whenever nobody is talking (issue #38). So once a mic has delivered real
+    # sound this session, it has proven it works, and silence from it is taken
+    # as a pause; and the notice clears itself the moment sound arrives.
     SILENT_MIC_CHECK_SECONDS = 1.0
     SILENT_MIC_PEAK = 1e-5
+    SILENT_MIC_RECHECK_SECONDS = 0.2
+    # At most one silent-mic toast per this many seconds: Windows queues them,
+    # and a run of empty recordings used to stack a pile of identical ones.
+    SILENT_MIC_NOTIFY_COOLDOWN = 600
 
     def _silent_mic_message(self) -> str:
         where = ("Windows lets desktop apps use it (Settings > Privacy > Microphone)"
@@ -511,19 +521,75 @@ class StateManager:
         timer.daemon = True
         timer.start()
 
+    # Whether this recorder has delivered real sound at some point this run.
+    # Keyed on the recorder object, so switching mics starts over.
+    def _mic_has_proven_itself(self, recorder) -> bool:
+        return getattr(self, '_proven_recorder', None) is recorder
+
+    def _mark_mic_proven(self, recorder):
+        self._proven_recorder = recorder
+
     # Runs on the timer thread. Only for the recording that scheduled it: a
     # recording that already ended, or a mic swapped meanwhile, says nothing.
     def _check_silent_mic(self, session, recorder):
         if session != getattr(self, '_recording_session', None) or recorder is not self.audio_recorder:
             return
+        if self._mic_has_proven_itself(recorder):
+            return
         try:
-            if not recorder.get_recording_status() or recorder.get_recording_peak() >= self.SILENT_MIC_PEAK:
+            if not recorder.get_recording_status():
+                return
+            if recorder.get_recording_peak() >= self.SILENT_MIC_PEAK:
+                self._mark_mic_proven(recorder)
                 return
         except Exception:
             return
         self.logger.warning("Microphone delivered pure silence during the first second of recording")
         if self.level_overlay:
             self.level_overlay.show_notice("Mic is silent: check mute or permission")
+        self._notify_silent_mic()
+        self._watch_for_sound(session, recorder)
+
+    # Keeps checking after the notice went up, and takes it down as soon as
+    # the mic delivers sound, so speaking after a pause clears it (issue #38).
+    def _watch_for_sound(self, session, recorder):
+        def check():
+            if session != getattr(self, '_recording_session', None) or recorder is not self.audio_recorder:
+                return
+            try:
+                if not recorder.get_recording_status():
+                    return
+                heard = recorder.get_recording_peak() >= self.SILENT_MIC_PEAK
+            except Exception:
+                return
+            if heard:
+                self._mark_mic_proven(recorder)
+                self.logger.info("Microphone is delivering sound again; silent-mic notice cleared")
+                if self.level_overlay:
+                    self.level_overlay.clear_notice()
+                return
+            self._watch_for_sound(session, recorder)
+        timer = threading.Timer(self.SILENT_MIC_RECHECK_SECONDS, check)
+        timer.daemon = True
+        timer.start()
+
+    # notifications.silent_microphone: "auto" (the default) sends a system
+    # notification only when the floating overlay can't show the warning,
+    # true always does, false never does. Either way at most one per cooldown.
+    def _notify_silent_mic(self):
+        policy = self.config_manager.config.get('notifications', {}) or {}
+        setting = str(policy.get('silent_microphone', 'auto')).strip().lower()
+        if setting in ('false', 'off', 'no', '0'):
+            return
+        overlay_visible = bool(self.level_overlay) and getattr(self.level_overlay, '_available', True)
+        if setting == 'auto' and overlay_visible:
+            return
+        import time
+        now = time.monotonic()
+        last = getattr(self, '_last_silent_mic_notice', None)
+        if last is not None and now - last < self.SILENT_MIC_NOTIFY_COOLDOWN:
+            return
+        self._last_silent_mic_notice = now
         self.system_tray.notify(self._silent_mic_message())
 
     # Tell the user, once per app per session, that a per-app rule made this
@@ -592,6 +658,8 @@ class StateManager:
                 return
 
             duration = self.audio_recorder.get_audio_duration(audio_data)
+            if not getattr(self.audio_recorder, 'last_recording_was_silent', False):
+                self._mark_mic_proven(self.audio_recorder)
             # Kept for "Retry last dictation": in memory only, replaced by the
             # next recording, never written to disk.
             self._last_audio = audio_data
@@ -624,14 +692,18 @@ class StateManager:
                                             "Your audio is kept: tray > Retry last dictation.")
                     if self.level_overlay:
                         self.level_overlay.flash_failure("Transcription failed")
-                elif getattr(self.audio_recorder, 'last_recording_was_silent', False):
-                    self.system_tray.notify(self._silent_mic_message())
+                elif (getattr(self.audio_recorder, 'last_recording_was_silent', False)
+                      and not self._mic_has_proven_itself(self.audio_recorder)):
+                    self._notify_silent_mic()
                     if self.level_overlay:
                         self.level_overlay.flash_failure("Mic is silent")
                 else:
-                    self.system_tray.notify("Transcription was empty (silence or noise only).")
-                    if self.level_overlay:
+                    # The pill says it where the user is looking; a toast for
+                    # every empty recording only piles up (issue #38).
+                    if self.level_overlay and getattr(self.level_overlay, '_available', True):
                         self.level_overlay.flash_failure("No speech detected")
+                    else:
+                        self.system_tray.notify("Transcription was empty (silence or noise only).")
                 return
 
             if command_mode:

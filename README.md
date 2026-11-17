@@ -389,6 +389,7 @@ Delete the file and restart to reset to defaults. Highlights:
 | `hotkey.double_tap_to_lock` | `false` | Double-tap the record hotkey for hands-free recording |
 | `hotkey.paste_last_hotkey` | `alt+shift+z` | Type your last dictation again (`ctrl+option+v` on macOS) |
 | `hotkey.mouse_button` | `""` | `middle`, `x1`, `x2` or `both`: hold that mouse button to dictate (Windows) |
+| `notifications.silent_microphone` | `auto` | Silent-mic system notification: `auto` (only when the overlay is off), `true`, `false` |
 | `ui.theme` | `system` | `system` follows the OS; `dark` or `light` for the app's windows |
 | `postprocess.cleanup` | `light` | `none` / `light` / `medium` / `high`: how much of what you said gets tidied |
 | `postprocess.style` | `""` | `formal` / `casual` / `very_casual` / `verbatim`, or per app in `app_rules.yaml` |

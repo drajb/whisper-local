@@ -144,6 +144,14 @@ class LevelOverlay:
                 pass
         self._call(do)
 
+    # Takes a notice down again (the mic came back) and restores the normal
+    # "Listening…" / streaming text. Does nothing outside a recording.
+    def clear_notice(self):
+        def do():
+            if self._mode in ('recording', 'processing'):
+                self._refresh_text()
+        self._call(do)
+
     def set_position(self, name: str):
         if name not in self.POSITIONS:
             return

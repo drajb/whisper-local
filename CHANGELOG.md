@@ -2,6 +2,25 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1]
+
+### Fixed
+- **The silent-microphone warning cried wolf** (#38). It flagged any mic that
+  delivered exact zeros in the first second, but noise-gated virtual mics
+  (NVIDIA Broadcast, Krisp, some headset drivers) output exact zeros whenever
+  nobody is talking. Three changes:
+  - The warning now clears from the overlay as soon as sound arrives, instead
+    of staying up while the level bar moves.
+  - A mic that has delivered real sound since the app started is not flagged
+    again for a pause or an empty recording. Switching mics starts over.
+  - Windows notifications no longer pile up. The new
+    `notifications.silent_microphone` setting (Settings → Audio) decides when
+    one is sent. `auto`, the default, sends one only when the floating overlay
+    can't show the warning. `true` always sends, at most one every ten
+    minutes, and `false` never sends. An empty recording from a working mic
+    now just flashes "No speech detected" in the pill, without a toast.
+  Thanks @N3M1X10 for the detailed report.
+
 ## [0.24.0]
 
 ### Added

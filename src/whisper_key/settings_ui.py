@@ -522,6 +522,12 @@ def _build_audio_tab(nb, cm, vars_, row_index):
     _row(tab, 'vad.vad_silence_timeout_seconds', 'Silence timeout (s)',
          lambda p: _entry(p, v), row_index)
 
+    v = tk.StringVar(master=nb, value=str(_v(cfg, 'notifications', 'silent_microphone', default='auto')).lower())
+    vars_['notifications.silent_microphone'] = v
+    _row(tab, 'notifications.silent_microphone', 'Silent-mic notification',
+         lambda p: _combo(p, v, ['auto', 'true', 'false']), row_index,
+         note='The overlay always warns. auto: notify only when the overlay is off.')
+
     v = tk.BooleanVar(master=nb, value=bool(_v(cfg, 'audio_feedback', 'enabled', default=True)))
     vars_['audio_feedback.enabled'] = v
     _check(tab, 'audio_feedback.enabled',
@@ -708,6 +714,8 @@ def _coerce(var, raw, path):
         return ''
     if path == 'hotkey.mouse_button' and raw == _MOUSE_OFF:
         return ''
+    if path == 'notifications.silent_microphone':
+        return {'true': True, 'false': False}.get(raw, 'auto')
     if path == 'whisper.languages':
         from .dictation_languages import normalize_languages
         return normalize_languages(raw)

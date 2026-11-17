@@ -4689,11 +4689,14 @@ class WisprOctoberFeatureTests(unittest.TestCase):
 
     # --- silent mic, caught one second in ---
     def test_silent_mic_warns_while_still_recording(self):
+        import unittest.mock as mock
         sm = self._state_manager()
+        sm.config_manager = mock.Mock(config={'notifications': {'silent_microphone': True}})
         sm._recording_session = 7
         sm.audio_recorder.get_recording_status.return_value = True
         sm.audio_recorder.get_recording_peak.return_value = 0.0
-        sm._check_silent_mic(7, sm.audio_recorder)
+        with mock.patch.object(sm, '_watch_for_sound'):
+            sm._check_silent_mic(7, sm.audio_recorder)
         sm.level_overlay.show_notice.assert_called_once()
         self.assertIn('No sound is reaching the microphone', sm.system_tray.notify.call_args[0][0])
 
@@ -5002,6 +5005,8 @@ class MouseFlowAndThemeTests(unittest.TestCase):
             var = tk.StringVar(master=root)
             self.assertEqual(_coerce(var, _MOUSE_OFF, 'hotkey.mouse_button'), '')
             self.assertEqual(_coerce(var, 'x2', 'hotkey.mouse_button'), 'x2')
+            self.assertIs(_coerce(var, 'false', 'notifications.silent_microphone'), False)
+            self.assertEqual(_coerce(var, 'auto', 'notifications.silent_microphone'), 'auto')
         finally:
             root.destroy()
 
@@ -5054,6 +5059,93 @@ class MouseFlowAndThemeTests(unittest.TestCase):
         buttons = src[src.index('BUTTONS = {'):src.index('}', src.index('BUTTONS = {'))]
         self.assertNotIn("'left'", buttons)
         self.assertNotIn("'right'", buttons)
+
+    # ── #38: silent-mic warning false positives and toast pile-up ───────────
+    def _silent_sm(self, setting='auto', overlay=True):
+        import unittest.mock as mock
+        sm = WisprOctoberFeatureTests._state_manager(self)
+        sm.config_manager = mock.Mock(config={'notifications': {'silent_microphone': setting}})
+        if not overlay:
+            sm.level_overlay = None
+        sm._recording_session = 1
+        sm.audio_recorder.get_recording_status.return_value = True
+        sm.audio_recorder.get_recording_peak.return_value = 0.0
+        return sm
+
+    def _first_second(self, sm):
+        import unittest.mock as mock
+        with mock.patch.object(sm, '_watch_for_sound'):
+            sm._check_silent_mic(1, sm.audio_recorder)
+
+    def test_auto_leaves_it_to_the_overlay(self):
+        sm = self._silent_sm('auto')
+        self._first_second(sm)
+        sm.level_overlay.show_notice.assert_called_once()
+        sm.system_tray.notify.assert_not_called()
+
+    def test_auto_notifies_when_there_is_no_overlay(self):
+        sm = self._silent_sm('auto', overlay=False)
+        self._first_second(sm)
+        sm.system_tray.notify.assert_called_once()
+
+    def test_false_never_notifies_and_true_is_rate_limited(self):
+        sm = self._silent_sm(False, overlay=False)
+        self._first_second(sm)
+        sm.system_tray.notify.assert_not_called()
+        sm = self._silent_sm(True)
+        for _ in range(3):
+            self._first_second(sm)
+        self.assertEqual(sm.system_tray.notify.call_count, 1, 'no pile of identical toasts')
+
+    def test_notice_clears_once_the_mic_delivers_sound(self):
+        import unittest.mock as mock
+        sm = self._silent_sm()
+
+        class ImmediateTimer:
+            def __init__(self, _delay, fn, args=()):
+                self.fn, self.args = fn, args
+                self.daemon = True
+
+            def start(self):
+                self.fn(*self.args)
+        peaks = iter([0.0, 0.0, 0.2])
+        sm.audio_recorder.get_recording_peak.side_effect = lambda: next(peaks)
+        with mock.patch('whisper_key.state_manager.threading.Timer', ImmediateTimer):
+            sm._check_silent_mic(1, sm.audio_recorder)
+        sm.level_overlay.show_notice.assert_called_once()
+        sm.level_overlay.clear_notice.assert_called_once()
+        self.assertTrue(sm._mic_has_proven_itself(sm.audio_recorder))
+
+    def test_a_mic_that_has_worked_is_not_flagged_for_a_pause(self):
+        sm = self._silent_sm(True)
+        sm._mark_mic_proven(sm.audio_recorder)
+        self._first_second(sm)
+        sm.level_overlay.show_notice.assert_not_called()
+        sm.system_tray.notify.assert_not_called()
+
+    def test_empty_recording_flashes_the_pill_without_a_toast(self):
+        src = (ROOT / 'src' / 'whisper_key' / 'state_manager.py').read_text(encoding='utf-8')
+        body = src[src.index('if not transcribed_text:'):]
+        body = body[:body.index('if command_mode:')]
+        self.assertIn('_notify_silent_mic()', body)
+        self.assertIn('not self._mic_has_proven_itself', body)
+        empty = body[body.index('No speech detected') - 300:]
+        self.assertIn("level_overlay", empty)
+
+    def test_notification_setting_is_validated(self):
+        import copy
+        import logging
+        from ruamel.yaml import YAML
+        reimport_under(self, fake_platform_modules())
+        from whisper_key.config_manager import validate_config
+        with open(ROOT / 'src' / 'whisper_key' / 'config.defaults.yaml', encoding='utf-8') as f:
+            defaults = YAML().load(f)
+        self.assertEqual(defaults['notifications']['silent_microphone'], 'auto')
+        for value, expected in ((False, False), (True, True), ('loud', 'auto')):
+            config = copy.deepcopy(defaults)
+            config['notifications']['silent_microphone'] = value
+            validate_config(config, defaults, logging.getLogger('test'))
+            self.assertEqual(config['notifications']['silent_microphone'], expected)
 
     # ── Light / dark / system theme ─────────────────────────────────────────
     def _theme(self, resolved):

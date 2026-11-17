@@ -480,6 +480,11 @@ def validate_config(config, default_config, logger):
 
     _validate_numeric_range(config, default_config, 'stats.typing_wpm', logger, min_val=1, max_val=300)
 
+    # YAML reads true/false as booleans, so compare their string forms too.
+    silent_mic = str(_get_config_value_at_path(config, 'notifications.silent_microphone')).strip().lower()
+    if silent_mic not in ('auto', 'true', 'false'):
+        _set_to_default(config, default_config, 'notifications.silent_microphone', silent_mic, logger)
+
     theme = str(_get_config_value_at_path(config, 'ui.theme') or '').strip().lower()
     if theme not in ('system', 'dark', 'light'):
         _set_to_default(config, default_config, 'ui.theme', theme, logger)

@@ -661,6 +661,14 @@ stats: # Usage stats (--stats and the daily "min saved" summary)
     # saves you. 40 is a typical average; a one-minute online typing test gives yours.
     typing_wpm: 40
 
+notifications: # System notifications (Windows toasts / macOS banners)
+    # "No sound is reaching the microphone" warnings. The floating overlay
+    # always shows them while you record; this decides whether a system
+    # notification is sent as well.
+    # auto = only when the overlay can't show it (overlay off, or macOS)
+    # true = always (at most one every 10 minutes); false = never
+    silent_microphone: auto
+
 update_check: # Opt-in update notifications
     # When enabled, once per day Whisper Local checks the GitHub releases API
     # for a newer version and shows a tray notification if found.
