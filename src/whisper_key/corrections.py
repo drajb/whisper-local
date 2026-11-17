@@ -81,6 +81,28 @@ def add_replacement(from_text: str, to_text: str,
     return True
 
 
+# Removes the correction whose "from" matches (case-insensitively). Returns
+# True when one was removed.
+def remove_replacement(from_text: str) -> bool:
+    path = _settings_path()
+    if not path.exists():
+        return False
+    yaml = YAML()
+    with open(path, encoding='utf-8') as f:
+        data = yaml.load(f) or {}
+    postprocess = data.get('postprocess') or {}
+    current = list(postprocess.get('replacements') or [])
+    target = (from_text or '').strip().lower()
+    kept = [r for r in current
+            if not (isinstance(r, dict) and str(r.get('from', '')).strip().lower() == target)]
+    if len(kept) == len(current):
+        return False
+    postprocess['replacements'] = kept
+    data['postprocess'] = postprocess
+    _write(path, yaml, data)
+    return True
+
+
 def _write(path: Path, yaml: YAML, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:

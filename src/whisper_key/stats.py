@@ -186,6 +186,62 @@ def export_transcripts(dest: str) -> int:
     return 0
 
 
+# Reads stats.jsonl into a list of entries, skipping damaged lines.
+def load_entries() -> list:
+    path = Path(get_user_app_data_path()) / STATS_FILE
+    entries = []
+    try:
+        with open(path, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        pass
+    return entries
+
+
+# Everything the Home dashboard shows, computed from the journal: lifetime
+# totals, time saved, speaking speed, streaks, the last seven days' words and
+# the busiest apps. Pure apart from reading the file, so it is easy to test.
+def compute_summary(typing_wpm: float = DEFAULT_TYPING_WPM, entries: list = None,
+                    today: datetime.date = None) -> dict:
+    entries = load_entries() if entries is None else entries
+    today = today or datetime.date.today()
+    total_chars = sum(_safe_int(e.get('chars')) for e in entries)
+    total_seconds = sum(_safe_float(e.get('duration_s')) for e in entries)
+    words = total_chars // CHARS_PER_WORD
+    minutes_speaking = total_seconds / 60
+    active_days = {e.get('ts', '')[:10] for e in entries if e.get('ts')}
+    streak, longest = _compute_streaks(active_days, today)
+
+    week = []
+    for back in range(6, -1, -1):
+        day = today - datetime.timedelta(days=back)
+        day_chars = sum(_safe_int(e.get('chars')) for e in entries
+                        if e.get('ts', '').startswith(day.isoformat()))
+        week.append((day, day_chars // CHARS_PER_WORD))
+
+    week_ago = (today - datetime.timedelta(days=7)).isoformat()
+    recent = [e for e in entries if e.get('ts', '') >= week_ago]
+    top_apps = Counter(e.get('app') or 'unknown' for e in recent).most_common(5)
+    return {
+        'dictations': len(entries),
+        'words': words,
+        'minutes_saved': _minutes_saved(words, total_seconds, typing_wpm),
+        'avg_wpm': (words / minutes_speaking) if minutes_speaking > 0 else 0.0,
+        'streak': streak,
+        'longest_streak': longest,
+        'active_days': len(active_days),
+        'week': week,
+        'top_apps': top_apps,
+    }
+
+
 # `--stats`: renders the whole journal as a console report — totals, time saved
 # (vs a typing-speed baseline), busiest apps, and the current/longest streak.
 # Returns a process exit code so main() can hand it straight to sys.exit().

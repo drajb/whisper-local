@@ -252,10 +252,19 @@ class Kit:
 
     # ── Small conveniences ──────────────────────────────────────────────────
 
-    def label(self, parent, text='', role='body', color='text', bg=None, **kw):
-        return tk.Label(parent, text=text, font=self.font(role), fg=self.p.get(color, color),
-                        bg=bg or _bg_of(parent), anchor=kw.pop('anchor', 'w'),
-                        justify=kw.pop('justify', 'left'), bd=0, **kw)
+    # A themed label. wrap=True makes it wrap to whatever width it is given
+    # (pack it with fill='x'), instead of a fixed wraplength that clips text
+    # when the window is narrower than expected.
+    def label(self, parent, text='', role='body', color='text', bg=None, wrap=False, **kw):
+        label = tk.Label(parent, text=text, font=self.font(role), fg=self.p.get(color, color),
+                         bg=bg or _bg_of(parent), anchor=kw.pop('anchor', 'w'),
+                         justify=kw.pop('justify', 'left'), bd=0, **kw)
+        if wrap:
+            def rewrap(event):
+                if abs(int(label.cget('wraplength') or 0) - event.width) > 2:
+                    label.configure(wraplength=max(40, event.width))
+            label.bind('<Configure>', rewrap)
+        return label
 
     def frame(self, parent, bg=None, **kw):
         return tk.Frame(parent, bg=bg or _bg_of(parent), bd=0, highlightthickness=0, **kw)
@@ -654,8 +663,12 @@ class Card(tk.Canvas):
     """A rounded, bordered panel. Put content in `card.body`; the card grows
     to fit it and stretches to the width it is packed into."""
 
-    def __init__(self, parent, kit, padding=18, fill=None, outline=True, radius=14, bg=None):
+    def __init__(self, parent, kit, padding=18, fill=None, outline=True, radius=14, bg=None,
+                 stretch=False):
         self.kit = kit
+        # stretch=True: the body fills whatever height the card is given
+        # (an editor), instead of the card shrinking to fit its body.
+        self._stretch = stretch
         self._pad = kit.px(padding)
         self._fill = fill or kit.p['surface']
         self._outline = kit.p['border'] if outline else None
@@ -671,6 +684,8 @@ class Card(tk.Canvas):
         self.bind('<Configure>', self._redraw)
 
     def _fit_height(self, _e=None):
+        if self._stretch:
+            return
         height = self.body.winfo_reqheight() + 2 * self._pad
         if int(self.cget('height')) != height:
             self.configure(height=height)
@@ -680,6 +695,8 @@ class Card(tk.Canvas):
         self.kit.round_rect(self, 0, 0, e.width, e.height, self._radius, self._fill, self._outline)
         self.tag_lower('shape')
         self.itemconfigure(self._window, width=max(10, e.width - 2 * self._pad))
+        if self._stretch:
+            self.itemconfigure(self._window, height=max(10, e.height - 2 * self._pad))
 
 
 def kbd(parent, kit, text: str, bg=None):
